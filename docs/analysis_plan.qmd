@@ -3,6 +3,8 @@ title: "Evaluating the systematic integration of multi-stream behavioural data f
 author: "Luke Burton"
 format: docx
 editor: visual
+  markdown: 
+    wrap: sentence
 date: 2026-02-24
 ---
 
@@ -16,58 +18,52 @@ Real-time awareness relies on understanding how behaviour and attitude changes t
 
 ## Gap
 
-1. **Integration Gap:** There is limited systematic integration of ad-hoc behavioral data (Google Mobility, CoMix) for real-time estimation and interpretation of transmission drivers.
-2. **Methodological Gap:** We lack validated, generalisable methods to determine minimal data requirements and the utility of diverse datasets in predicting transmission changes, including when and where proxies fail to explain transmission changes.
+1.  **Integration Gap:** There is limited systematic integration of ad-hoc behavioral data (Google Mobility, CoMix) for real-time estimation and interpretation of transmission drivers.
+2.  **Methodological Gap:** We lack validated, generalisable methods to determine minimal data requirements and the utility of diverse datasets in predicting transmission changes, including when and where proxies fail to explain transmission changes.
 
 ## Aims
 
-1. Carry out Exploratory Data Analysis (EDA) to characterise relationships between behavioural indicators and changes in transmission, including lags and decoupling of relationships.
-2. Explore multi-stream integration approaches for explaining and anticipating changes in transmission, suggesting incremental benefit compared to baseline models using cases alone.
-3. Identify poorly explained transmission changes, prompting deeper investigation in subsequent work.
+1.  Carry out Exploratory Data Analysis (EDA) to characterise relationships between behavioural indicators and changes in transmission, including lags and decoupling of relationships.
+2.  Explore multi-stream integration approaches for explaining and anticipating changes in transmission, suggesting incremental benefit compared to baseline models using cases alone.
+3.  Identify poorly explained transmission changes, prompting deeper investigation in subsequent work.
 
 # Methods
 
 ## Data Sources
-* **Epidemiological:** ONS prevalence, with incidence inferred from inc2prev, and antibody prevalence where necessary.
-* **Behavioural:** CoMix (social contact surveys), Google Mobility (aggregated movement), and OxCGRT (policy/NPI indicators).
+
+-   **Epidemiological:** ONS prevalence, with incidence inferred from inc2prev, and antibody prevalence where necessary.
+-   **Behavioural:** CoMix (social contact surveys), Google Mobility (aggregated movement), and OxCGRT (policy/NPI indicators).
 
 Unless otherwise specified, data will be treated as time series with attention to measurements, timeliness and bias, noting apparent limitations and availability concerns (e.g. reporting delays).
 
 ## Analysis workflow
-1. **Harmonisation:** Temporal alignment of daily/weekly series, accounting for reporting lags. Standardise indicators where necessary for relative change, while retaining raw units for interpretability.
-2. **Rt estimation:** Using `EpiEstim` (o.e.) to generate baseline transmission estimates from ONS data, noting sensitivity to key parameters (window length, generation interval etc.).
-Treat $R_t$ as the primary inferred target for subsequent integration analyses.
-3. **Exploratory analysis:** Examine relationship between indicators and $R_t$ (changes), starting with cross-correlation functions.
-Summarise behaviour dynamics including derived values such as time-varying dominant eigenvalue of next-generation matrix inferred from CoMix.
-4. **Regression Framework:** * **Baseline:** Regress $R_t$ on previous cases alone.
-    * **Experimental:** Systematically introduce CoMix, Mobility and OxCGRT streams using GAMs/GLMs for nonlinearities which maintaining interpretability.
+
+1.  **Harmonisation:** Temporal alignment of daily/weekly series, accounting for reporting lags. Standardise indicators where necessary for relative change, while retaining raw units for interpretability.
+2.  **Rt estimation:** Using `EpiEstim` (o.e.) to generate baseline transmission estimates from ONS data, noting sensitivity to key parameters (window length, generation interval etc.). Treat $R_t$ as the primary inferred target for subsequent integration analyses.
+3.  **Exploratory analysis:** Examine relationship between indicators and $R_t$ (changes), starting with cross-correlation functions. Summarise behaviour dynamics including derived values such as time-varying dominant eigenvalue of next-generation matrix inferred from CoMix.
+4.  **Regression Framework:** \* **Baseline:** Regress $R_t$ on previous cases alone.
+    -   **Experimental:** Systematically introduce CoMix, Mobility and OxCGRT streams using GAMs/GLMs for nonlinearities which maintaining interpretability.
 
 ## Model specification
-Compare regression-based models that relate transmission to behavioural streams, with forecasting achieved by propagating the regression model forward under assumptions about future inputs.
-**Primary target:** $\hat(R)_t$ estimated from ONS prevalence-derived incidence.
-**Secondary targets:** Incidence using proper forecast scoring.
+
+Compare regression-based models that relate transmission to behavioural streams, with forecasting achieved by propagating the regression model forward under assumptions about future inputs. **Primary target:** $\hat(R)_t$ estimated from ONS prevalence-derived incidence. **Secondary targets:** Incidence using proper forecast scoring.
 
 $$
 g\!\left(R_t\right)=\alpha+\sum_{p=1}^{P}\phi_p\,R_{t-p}+\sum_{k=1}^{K}\beta_k\,X_{k,t-\ell_k}+\varepsilon_t
 $$
 
-**Regression model class:** Follow GLM/GAM framework with link function regressed on historical $R_t$ and behavioural indicators $X_{k,t-\ell}$, with smoothing spline term and lag structure informed by EDA.
-**Forecasting framework:** TBC, for now can set up autoregressive terms to establish time points as 'forecast data'. Carry forward through 1-4 week horizons, potentially performing sensitivity analysis on assumptions made about future trends in behaviour. These will be refined via behavioural driver work in subsequent research.
-Translating into forecasted cases can be seen as a secondary evaluation layer.
+**Regression model class:** Follow GLM/GAM framework with link function regressed on historical $R_t$ and behavioural indicators $X_{k,t-\ell}$, with smoothing spline term and lag structure informed by EDA. **Forecasting framework:** TBC, for now can set up autoregressive terms to establish time points as 'forecast data'. Carry forward through 1-4 week horizons, potentially performing sensitivity analysis on assumptions made about future trends in behaviour. These will be refined via behavioural driver work in subsequent research. Translating into forecasted cases can be seen as a secondary evaluation layer.
 
 ## Evaluation
-Model comparisons will prioritise explanatory value and robustness, with forecasting (sheer case prediction) as secondary focus.
-* **Incremental explained variation:** Partial $R^2$ (or analogous decomposition) to quantify additional variance explained by each stream beyond the baseline.
-* **Forecast/nowcast utility:** Use `scoringutils` R package to calculate proper scoring rules (e.g. CRPS, WIS, bias, coverage) over short horizons (1-4 weeks) - UPDATE validation i.e. time-series, out-of-sample, generalisability?
-* **Minimal data requirements:** AIC/BIC to identify model selection and specification which retain most of the value.
-* **Residual diagnostics:** Characterise when models fail, including sociodemographic groups and pandemic periods where applicable, and whether deviations align with known changes in testing, policy, variant emergence etc.
 
+Model comparisons will prioritise explanatory value and robustness, with forecasting (sheer case prediction) as secondary focus. \* **Incremental explained variation:** Partial $R^2$ (or analogous decomposition) to quantify additional variance explained by each stream beyond the baseline. \* **Forecast/nowcast utility:** Use `scoringutils` R package to calculate proper scoring rules (e.g. CRPS, WIS, bias, coverage) over short horizons (1-4 weeks) - UPDATE validation i.e. time-series, out-of-sample, generalisability? \* **Minimal data requirements:** AIC/BIC to identify model selection and specification which retain most of the value. \* **Residual diagnostics:** Characterise when models fail, including sociodemographic groups and pandemic periods where applicable, and whether deviations align with known changes in testing, policy, variant emergence etc.
 
 ## Core outcomes / targets
 
 ## Extensions to consider
-1. Consider more realistic delays including reporting and data availability for prospective lens.
-2. Inclusion of additional indicators e.g. YouGov-style behavioural indicators once core pipeline is developed and stable.
-3. Universal differential equations or comparable frameworks with less rigid assumptions, whilst maintaining interpretability. Need to respect delays and lags during regression tasks.
+
+1.  Consider more realistic delays including reporting and data availability for prospective lens.
+2.  Inclusion of additional indicators e.g. YouGov-style behavioural indicators once core pipeline is developed and stable.
+3.  Universal differential equations or comparable frameworks with less rigid assumptions, whilst maintaining interpretability. Need to respect delays and lags during regression tasks.
 
 # References
