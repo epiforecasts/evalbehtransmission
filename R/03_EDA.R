@@ -129,8 +129,34 @@ ggplot() +
   facet_wrap(~location_type) +
   labs(
     title    = "Google Mobility & Estimated Rt, England",
-    subtitle = "Black line: EpiEstim Rt (median + 95% CrI). Coloured = Mobility % change from baseline",
+    subtitle = "Black line: EpiEstim Rt",
     x        = "Date"
   ) +
   theme_classic() +
   theme(legend.position = "none")
+
+
+
+
+
+
+
+# Plot 1: ONS Incidence
+p1 <- ggplot(ons_incidence |> filter(between(date, as.Date("2020-01-01"), as.Date("2022-12-31"))),
+             aes(x = date, y = median)) +
+  geom_line() +
+  labs(title = "ONS Daily Incidence, England",
+       subtitle = "inc2prev median estimate",
+       x = "Date", y = "Daily infections") +
+  theme_classic()
+
+# Plot 2: Rt with 95% CrI ribbon
+p2 <- ggplot(rt_estimates |> filter(between(date, as.Date("2020-01-01"), as.Date("2022-12-31"))),
+             aes(x = date)) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey50") +
+  geom_ribbon(aes(ymin = Rt_q025, ymax = Rt_q975), fill = "steelblue", alpha = 0.3) +
+  geom_line(aes(y = Rt_median)) +
+  labs(title = "Estimated Rt, England",
+       subtitle = "EpiEstim applied to median inc2prev",
+       x = "Date", y = "Rt") +
+  theme_classic()
