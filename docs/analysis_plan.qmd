@@ -3,6 +3,8 @@ title: "Evaluating the systematic integration of multi-stream behavioural data f
 author: "Luke Burton"
 format: docx
 editor: visual
+  markdown: 
+    wrap: sentence
 date: 2026-02-24
 ---
 
