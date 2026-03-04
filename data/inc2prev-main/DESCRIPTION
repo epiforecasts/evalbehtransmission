@@ -1,0 +1,57 @@
+Package: inc2prev
+Title: Estimate incidence from Prevalence Estimates
+Version: 0.1.0
+Authors@R: 
+    c(person(given = "Sam",
+             family = "Abbott",
+             role = c("aut", "cre"),
+             email = "sam.abbott@lshtm.ac.uk",
+             comment = c(ORCID = "0000-0001-8057-8037")),
+      person(given = "Sebastian",
+             family = "Funk",
+             role = c("aut"),
+             email = "sebastian.funk@lshtm.ac.uk",
+             comment = c(ORCID = "0000-0002-2842-3406")))
+Description: Estimate incidence from prevalence estimates, currently
+    demonstrated using the Office for National Statistics COVID-19
+    prevalence estimates.
+License: BSD 3-Clause + file LICENSE
+Imports:
+    cmdstanr,
+    rstan,
+    readxl,
+    readr,
+    data.table,
+    dplyr,
+    ggplot2,
+    bayesplot,
+    posterior,
+    truncnorm,
+    purrr,
+    scales,
+    here,
+    rvest, 
+    janitor,
+    tidyr,
+    socialmixr,
+    future.apply,
+    future.callr,
+    progressr,
+    piggyback,
+    fs,
+    forcats,
+    docopt,
+    magick,
+    svglite
+Remotes:
+    stan-dev/cmdstanr
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.2.3
+Suggests: 
+    rmarkdown,
+    cowplot,
+    bookdown,
+    kableExtra,
+    devtools
