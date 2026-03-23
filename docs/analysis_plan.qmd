@@ -3,67 +3,125 @@ title: "Evaluating the systematic integration of multi-stream behavioural data f
 author: "Luke Burton"
 format: docx
 editor: visual
-  markdown: 
-    wrap: sentence
-date: 2026-02-24
+date: 2026-03-09
 ---
 
 # Introduction
 
-This document outlines the analysis plan for developing a structured approach to integrating multiple behavioural data streams (contact surveys, mobility etc) to better explain and forecast changes in transmission during respiratory outbreaks. We emphasise inference and comparing the utility of different ad-hoc behavioural data streams.
+Respiratory outbreaks are driven by population-level movements, frequency of contacts, and implemented policies. Behavioural data aims to understand how these behaviours evolve and what this means for outbreaks.
+
+This document outlines the analysis plan for developing a structured approach to integrating multiple behavioural data streams (contact surveys, mobility etc) to better explain and forecast changes in transmission during respiratory outbreaks. Our nominated streams, namely CoMix and Google Mobility, serve as proxies for transmission-relevant behaviours and are frequently used to parameterise outbreak models due to their correlation with transmission and relevance to spatial intervention. We focus on their ability to capture transmission changes and failure nodes. Future directions intend to integrate further sources including transport and restaurant booking data, alongside social survey data capturing attitudes and NPI preferences to capture what drives these behaviours and how they influence epidemic outcomes.
 
 ## Need
 
-Real-time awareness relies on understanding how behaviour and attitude changes translate into transmission change. Models often rely on single proxies / behaviour metrics or assume constant contact mixing, obscuring behavioural drivers and limiting real-time understanding of transmission needed for public health decision making.
+Real-time awareness relies on understanding how behaviour and attitude changes translate into transmission change. Models often rely on single behaviour metrics or assume constant contact mixing, which may overlook signals which exist in more diverse data streams.  This obscures behavioural drivers and limits real-time understanding of transmission needed for public health decision making. Notably, the effectiveness of non-pharmaceutical interventions depends on how well they target settings which drive transmission and avoid disproportionately impacting low-risk groups.
+
+Regarding pandemic preparedness, it is important to understand societal response to interventions and the subsequent impact on transmission. In particular, targeting policy-amenable behaviour which is driving transmission helps reduce transmission, although this requires an understanding of which behaviours drive risk and why subgroups respond differently. This understanding can aid understanding of which data collection to prioritise and how to design policy interventions during future respiratory outbreaks.
 
 ## Gap
 
-1.  **Integration Gap:** There is limited systematic integration of ad-hoc behavioral data (Google Mobility, CoMix) for real-time estimation and interpretation of transmission drivers.
-2.  **Methodological Gap:** We lack validated, generalisable methods to determine minimal data requirements and the utility of diverse datasets in predicting transmission changes, including when and where proxies fail to explain transmission changes.
+1.  **Integration gap:** Existing work often treats behavioural sources (Google Mobility, CoMix) independently or as sole proxies for transmission-relevant behaviour. Few studies have systematically benchmarked the joint and incremental value of these sources within the same transmission modelling framework for estimating transmission dynamics and the behavioural drivers underlying them.
+2.  **Methodological gap:** We lack validated, generalisable methods to determine the utility of diverse behavioural data streams, notably contact surveys, mobility indices and policy indicators, for predicting and explaining changes in transmission. This includes identifying when and where behavioural data fails to explain transmission changes.
+3.  **Real-time gap:** Existing work (e.g. Munday et al, 2022) often use retrospective "final" datasets. While this allows a more thorough understanding of transmission, it overlooks what was available at the time, including decisions about the selection and utility of data streams to understand transmission during an outbreak..
 
 ## Aims
 
 1.  Carry out Exploratory Data Analysis (EDA) to characterise relationships between behavioural indicators and changes in transmission, including lags and decoupling of relationships.
-2.  Explore multi-stream integration approaches for explaining and anticipating changes in transmission, suggesting incremental benefit compared to baseline models using cases alone.
-3.  Identify poorly explained transmission changes, prompting deeper investigation in subsequent work.
+2.  Fit renewal-based regression models to incidence data with different combinations of behavioural data streams as covariates. Decompose R(t), embedded into the framework, into an interpretable combination of behavioural indicators to capture relative contribution. Evaluate improvement in explanatory power and short-term forecast accuracy relative to a baseline model using past incidence alone.
+3.  Use stratified analyses to identify over which age groups and pandemic periods changes in transmission are poorly explained by the behavioural data streams used. This will help generate hypothesis around unmeasured drivers of transmission such as immunity heterogeneity, behaviour not captured by nominated streams, or surveillance artefacts including changes to reporting.
+
 
 # Methods
 
 ## Data Sources
 
--   **Epidemiological:** ONS prevalence, with incidence inferred from inc2prev, and antibody prevalence where necessary.
--   **Behavioural:** CoMix (social contact surveys), Google Mobility (aggregated movement), and OxCGRT (policy/NPI indicators).
+-   **Epidemiological:** SARS-CoV-2 infection incience estimates from the ONS COVID-19 Infection Survey (CIS) prevalence data (April 2020-2022) via the `{inc2prev}` package. CIS provides weekly national estimates with regional breakdowns across nine English regions and age stratification in 5- or 10-year bands. Note an approximate 2-3 week publication lag with ONS data, and that pre-April 2020 cases are not captured. ONS-derived antibody prevalence will be used when constructing the next-generation matrix (see Analysis Workflow) to mitigate conflating behaviour- and immunity-driven changes in $R_t$.
 
-Unless otherwise specified, data will be treated as time series with attention to measurements, timeliness and bias, noting apparent limitations and availability concerns (e.g. reporting delays).
+-   **Behavioural:**
+
+-   CoMix: Social contact surveys conducted periodically during the pandemic. Age-stratified (0-4, 5-9, 10-14,...), setting-based (home, work, other), across 6 sub-regions of England, alongside NPI preferences. Available weekly, with contacts reflecting the day prior to reporting and often a 1-2 week delay in data becoming available for analysis.
+
+-   Google Mobility: Captures spatial movements, including change in the amount of time spent in and visits to each of six categories - Parks, Groceries, Retail and Recreation, Transit Stations, Workplaces, Residential - relative to the same day of the week during baseline Jan 3rd-Feb 6th 2020 period. Data available at national, regional and local level with daily resolution and a 2-3 day lag between reporting and availability.
+
+-   OxCGRT: Policy/NPI indicators. 185 countries, subnational level. 20+ policy indicators with stringency index (0-100). Daily resolution, near real-time as volunteer collected with rapid upload, and sometimes retro-active corrections. Exogenous and delayed changes to behaviour should be considered alongside this.
+
+-   **Future sources:** We will begin with systematic integration of CoMix, Google Mobility and OxCGRT. Other behavioural proxy data was routinely collected throughout 2020-2022, including restaurant booking volumes (OpenTable) and transport volumes in London (CityMapper). Archives of some of these data streams are available, albeit limited in the public domain such that they may be incomplete or not spanning the full 2020-2022 period. Despite this, we may explore their use as retrospective "final" datasets alongside our prioritised data streams to assess their utility in explaining residual changes in transmission.
+
+Where possible, analyses will use data as it would have been available at each time point i.e. truncated at the analysis date. As a first pass, retrospectively finalised time series will be used and truncated at each analysis date. Real-time availability constraints and systematic reporting delays will be addressed in later work
 
 ## Analysis workflow
 
-1.  **Harmonisation:** Temporal alignment of daily/weekly series, accounting for reporting lags. Standardise indicators where necessary for relative change, while retaining raw units for interpretability.
-2.  **Rt estimation:** Using `EpiEstim` (o.e.) to generate baseline transmission estimates from ONS data, noting sensitivity to key parameters (window length, generation interval etc.). Treat $R_t$ as the primary inferred target for subsequent integration analyses.
-3.  **Exploratory analysis:** Examine relationship between indicators and $R_t$ (changes), starting with cross-correlation functions. Summarise behaviour dynamics including derived values such as time-varying dominant eigenvalue of next-generation matrix inferred from CoMix.
-4.  **Regression Framework:** \* **Baseline:** Regress $R_t$ on previous cases alone.
-    -   **Experimental:** Systematically introduce CoMix, Mobility and OxCGRT streams using GAMs/GLMs for nonlinearities which maintaining interpretability.
+1.  **Harmonisation:** Temporal alignment of daily and weekly series to a common weekly cadence, noting where publication lags mean that a given source would not have been available on a given date e.g. ONS CIS data being released with \~2 week delay. 
+
+Behavioural covariates will be standardised (z-scored) prior to model fitting, meaning coefficients are directly comparable across streams in terms of marginal association with transmission. Raw units will be retained for EDA and interpretation. For Google Mobility, a single composite time series will be derived from the six spatial categories via a weighted average. 
+
+*To discuss* Weekly or daily resolution, and either aggregation method (daily to weekly) or interpolation (weekly to daily).
+
+2.  $R_t$ **estimation:** $R_t$ estimates will be obtained from the `{inc2prev}` package, which infers instantaneous growth rate from ONS CIS prevalence data. As a first pass, use the posterior mean however the uncertainty can later be propagated throughout EDA and analysis steps. $R_t$ is used in exploratory analysis (see below), whereas incidence in the primary outcome of regression models.
+3.  **Exploratory analysis:** Examine relationship between behavioural indicators and $R_t$, starting with cross-correlation functions (CCF) over lags of -4 to +4 weeks, stratified by pandemic period, since behaviour-transmission associations vary across NPI and immunity context.
+    -   Consistently significant lags will inform fixed lag choices in the regression step. PCA and Variance Inflation Factors (VIF\>10 threshold) will screen for multicollinearity, particularly across Google Mobility sub-categories which are likely to co-vary strongly.
+    -   Contact matrices do not account for susceptibility of contacts. Using the approach outlined by Munday et al., we will use ONS-derived antibody prevalence to scale CoMix contact matrices (hereby called the 'next-generation matrix') in line with immunity profiles at the time of survey collection. The dominant eigenvalue $\lambda_t$ of each next-generation matrix provides a scalar summary of transmission potential beyond just mixing patterns. Comparing it to $R_t$ estimates (`{inc2prev}`) tests how well CoMix tracks observed transmission.
+4.  **Regression framework:** As outlined by Nouvellet et al. in `{Rtglm}`, we will use a renewal equation approach, transformed into a GAM regression model allowing us to input behavioural covariates via $R(t)$. Lag structure will be informed via EDA.
+    -   **Baseline:** Regress log-incidence on an autoregressive term (past incidence) alone, using a renewal-based framework. This acts as a benchmark to determine whether introducing behavioural covariates translates into meaningful improvements in model performance over epidemiological signal alone. That said, social contact data is necessary for decoupling contacts from risk and identifying which contact patterns drive transmission.
+    -   **Experimental:** Systematically introduce CoMix, Mobility and OxCRT as covariates, individually and in combination, using GAMs/GLMs to capture nonlinearities while maintaining interpretability. Regularisation of coefficients will promote stability under multicollinearity. To account for non-stationarity in behaviour-transmission relationships, models will include either period-specific interaction terms aligned with NPI periods, or time-varying coefficients.
 
 ## Model specification
 
-Compare regression-based models that relate transmission to behavioural streams, with forecasting achieved by propagating the regression model forward under assumptions about future inputs. **Primary target:** $\hat(R)_t$ estimated from ONS prevalence-derived incidence. **Secondary targets:** Incidence using proper forecast scoring.
+Regression-based models will relate incidence to behavioural streams, with forecasting achieved by propagating the fitted regression model forward under assumptions about future covariate values e.g. contact matrices or mobility indicator values remaining constant. These assumptions will be revisited in subsequent work.
 
-$$
-g\!\left(R_t\right)=\alpha+\sum_{p=1}^{P}\phi_p\,R_{t-p}+\sum_{k=1}^{K}\beta_k\,X_{k,t-\ell_k}+\varepsilon_t
-$$
+**Model outputs:** The primary outcome is log-incidence from ONS prevalence-derived estimates. Forecasted incidence is the direct out-of-sample prediction from the fitted regression model, propagated 1-4 weeks forwards under assumptions about future behavioural inputs. These incidence forecasts will be evaluated using proper scoring rules. $R_t$ is implied by the model structure rather than being a forecast target, given incidence is more tangible. Nonetheless, our evaluation of different models suggests how much of the variation in transmission each data stream accounts for.
 
-**Regression model class:** Follow GLM/GAM framework with link function regressed on historical $R_t$ and behavioural indicators $X_{k,t-\ell}$, with smoothing spline term and lag structure informed by EDA. **Forecasting framework:** TBC, for now can set up autoregressive terms to establish time points as 'forecast data'. Carry forward through 1-4 week horizons, potentially performing sensitivity analysis on assumptions made about future trends in behaviour. These will be refined via behavioural driver work in subsequent research. Translating into forecasted cases can be seen as a secondary evaluation layer.
+**Model variants for comparison:** Baseline (autoregressive), CoMix only, Mobility only, OxCGRT only, CoMix + Mobility, full model with all data streams. All covariates enter the model standardised, allowing direct comparison of the relataive contribution of each stream to transmission change.
+
+**Regression model class:** Following Nouvellet et al. (2025), the renewal equation is embedded within the GLM framework, with $I_t \sim \text{Poisson}(R_t \Lambda_t)$ where $\Lambda_t = \sum_{s=1}^{s_{\max}} w_s I_{t-s}$ is past incidence weighted by the generation interval $w_s$, pre-computed as a fixed offset. Taking logs:
+
+$$\log(E[I_t]) = \log(R_t) + \log(\Lambda_t)$$
+
+Behavioural covariates enter through $\log(R_t)$ as the linear predictor:
+
+$$\log(E[I_t]) = \alpha_0 + s(t) + \sum_{k=1}^{K} \beta_k X_{k,t-\ell_k} + \log(\Lambda_t)$$
+
+where $\alpha_0$ is a baseline log-transmission rate and $s(t)$ is a spline capturing residual time variation in transmission not explained by the behavioural covariates. If the nominated streams collectively account for all systematic changes in $R_t$, $s(t)$ should contribute little and effectively drop out. $\beta_k$ is the log-multiplicative effect of stream $X_k$ on $R_t$ at lag $\ell_k$
+
+Behavioural data streams $X_t$ include Google Mobility, OxCGRT stringency, and, for CoMix, the dominant eigenvalue $\lambda_1(t)$ of the next-generation matrix $NGM(t) = \text{diag}(\vec{s})\, C(t)\, \text{diag}(\vec{i})$ where $C(t)$ is the CoMix contact matrix, $\vec{s}$ antibody-informed susceptibilities and $\vec{i}$ age-specific infectiousness (following Munday et al., 2023). Using $\lambda_1(t)$ as the CoMix-derived covariate reduces the contact matrix to a single scalar encoding mixing patterns and susceptibility, in a comparable format to other data streams.
+
+The choice of link function used in the GLM/GAM framework is Poisson by default, however alternatives may be explored e.g. Negative Binomial depending on the observed distribution of incidence. *Elaborate in context of e.g. EpiEstim*
+
+**Forecasting framework:** Use rolling origin validation. Fit on weeks 1-N, then forecast to weeks N+1 to N+4, stepping foreward each time. Future behavioural covariates will be assumed to remain constant for now e.g. assume they retain the last observed value (as in Munday et al.) and revisit these assumptions in subsequent work. Forecasted incidence is the directly predicted outcome of the regression model.
 
 ## Evaluation
 
-Model comparisons will prioritise explanatory value and robustness, with forecasting (sheer case prediction) as secondary focus. \* **Incremental explained variation:** Partial $R^2$ (or analogous decomposition) to quantify additional variance explained by each stream beyond the baseline. \* **Forecast/nowcast utility:** Use `scoringutils` R package to calculate proper scoring rules (e.g. CRPS, WIS, bias, coverage) over short horizons (1-4 weeks) - UPDATE validation i.e. time-series, out-of-sample, generalisability? \* **Minimal data requirements:** AIC/BIC to identify model selection and specification which retain most of the value. \* **Residual diagnostics:** Characterise when models fail, including sociodemographic groups and pandemic periods where applicable, and whether deviations align with known changes in testing, policy, variant emergence etc.
+Models will be fit on the full 2020-2022 study period as the primary analysis, with stratified analyses by pandemic period (broadly reflecting different variants) and age group at granularity supported by both ONS CIS and CoMix as secondary analysis. This is a pre-cursor to more granular socioeconomic stratifications planned in subsequent behavioural driver work. Pandemic periods will be defined broadly by variant emergence and key NPI transitions following established conventions (e.g. Munday et al. or Gimma et al.)
 
-## Core outcomes / targets
+**Incremental explained variation:** Partial $R^2$ will quantify how much additional variance in incidence is explained by adding a given behavioural stream beyond the autoregressive baseline. This will be reported (i) overall across the full study period, and (ii) stratified by pandemic period and age group, with uncertainty quantified over rolling windows. **NB:** Check McFadden $R^2$ o.e. that compares goodness-of-fit / improvement in log-likelihood. Stratified results characterise when and for whom each stream is most informative and where failure modes arise.
+
+
+**Forecast accuracy:** Continuous Ranked Probability Score (CRPS) via `{scoringutils}` to evaluate distributional forecasts at 1-4 week horizons, alongside bias and coverage. CRPS is preferred over WIS here as it applies to posterior trajectory samples rather than requiring defined quantile estimates, and decomposes cleanly into underprediction, overprediction and dispersion components. Forecast dates will be stratified by pandemic period. The Omicron period (predominantly 2022) will be excluded due to unprecedented immune dynamics, following Munday et al.
+
+**Minimal data requirements:** AIC/BIC to identify model selection and specification which retain most of the value.
+
+**Stratified diagnostics:** Model performance will be evaluated by age group at granularity supported by ONS and CoMix e.g. 5- or 10-year bands, and by pandemic period, characterising when and where inclusion of behavioural data improved fit and forecast accuracy. Residuals will be inspected for systematic deviations which may coincide with changes in testing policy, variant emergence, or NPI changes. Extension to a hierarchical model to enable a finer sociodemographic stratification during model development will be a natural next step, relating to the behavioural driver analysis in subsequent work.
+
+## Core outcomes / targets / results
+
+**Primary outcome:** Incremental variance in incidence explained by each behavioural data stream (partial $R^2$), stratified by period and age group.
+
+**Secondary outcome:** Forecast accuracy (WIS) at 1-4 week time horizons. **NB:** CRPS if used.
+
+**Descriptive outcomes:** Characterising failure modes by period and age group, at the level of granularity both used in, and supported by, our nominated data streams and models.
+
+**Clarification:** TO CONFIRM with UKHSA: interpret and benchmark results against what is "useful enough" for understanding and policymaking e.g. does introducing CoMix create meaningful enough gains in predictive accuracy to facilitate decision-making? Which failure nodes, such as pandemic periods or sociodemographic groups, tell us something meaningful about drivers of transmission? Counterfactual analysis is an anticipated domain where behavioural data beyond the autoregressive baseline is a promising addition.
+
+## Supplementary work
+
+**Sensitivity analyses:** TBC: Modelling choices which may influence our conclusions, such as the method used to estimate $R_t$ from incidence data (including serial interval and window length). Any temporal alignment and data engineering choices such as methods used to aggregate individual-level contact data and rolling average window lengths.
 
 ## Extensions to consider
 
-1.  Consider more realistic delays including reporting and data availability for prospective lens.
-2.  Inclusion of additional indicators e.g. YouGov-style behavioural indicators once core pipeline is developed and stable.
-3.  Universal differential equations or comparable frameworks with less rigid assumptions, whilst maintaining interpretability. Need to respect delays and lags during regression tasks.
+1.  Structural identifiability steps, to ensure that quantities (e.g. SAR, lags) can be meaningfully identified from behavioural and epidemiological data.
+2.  More realistic delays including reporting and data availability for a prospective lens, directly addressing the real-time gap.
+3.  Inclusion of additional indicators e.g. YouGov-style behavioural indicators once core pipeline is developed and stable. Sources including Google Mobility and CityMapper may require spatial alignment, and sources may generally need reweighting based on sociodemographic distributions.
+4.  Universal differential equations or comparable (PPL) frameworks with less rigid assumptions, whilst maintaining interpretability. Need to respect delays and lags during regression tasks. Probabilistic or hierarchical and joint modelling frameworks will allow propagation of uncertainty throughout the model, as well as directly incorporate demographics such as age into the model-fitting process, rather than post-hoc performance stratification whereby performance may be dominated by high risk or more populated subgroups.
+5.  Consider applications to other respiratory pathogens e.g. influenza, RSV, Ebola. Many of these have social contact data but differences in data granularity and may require alternative modelling assumptions. Consider implications for future pandemic preparedness where baseline behaviour may hvae fundamentally shifted.
 
 # References
