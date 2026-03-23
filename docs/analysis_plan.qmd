@@ -14,7 +14,7 @@ This document outlines the analysis plan for developing a structured approach to
 
 ## Need
 
-Real-time awareness relies on understanding how behaviour and attitude changes translate into transmission change. Models often rely on single behaviour metrics or assume constant contact mixing, which may overlook signals which exist in more diverse data streams.  This obscures behavioural drivers and limits real-time understanding of transmission needed for public health decision making. Notably, the effectiveness of non-pharmaceutical interventions depends on how well they target settings which drive transmission and avoid disproportionately impacting low-risk groups.
+Real-time awareness relies on understanding how behaviour and attitude changes translate into transmission change. Models often rely on single behaviour metrics or assume constant contact mixing, which may overlook signals which exist in more diverse data streams. This obscures behavioural drivers and limits real-time understanding of transmission needed for public health decision making. Notably, the effectiveness of non-pharmaceutical interventions depends on how well they target settings which drive transmission and avoid disproportionately impacting low-risk groups.
 
 Regarding pandemic preparedness, it is important to understand societal response to interventions and the subsequent impact on transmission. In particular, targeting policy-amenable behaviour which is driving transmission helps reduce transmission, although this requires an understanding of which behaviours drive risk and why subgroups respond differently. This understanding can aid understanding of which data collection to prioritise and how to design policy interventions during future respiratory outbreaks.
 
@@ -29,7 +29,6 @@ Regarding pandemic preparedness, it is important to understand societal response
 1.  Carry out Exploratory Data Analysis (EDA) to characterise relationships between behavioural indicators and changes in transmission, including lags and decoupling of relationships.
 2.  Fit renewal-based regression models to incidence data with different combinations of behavioural data streams as covariates. Decompose R(t), embedded into the framework, into an interpretable combination of behavioural indicators to capture relative contribution. Evaluate improvement in explanatory power and short-term forecast accuracy relative to a baseline model using past incidence alone.
 3.  Use stratified analyses to identify over which age groups and pandemic periods changes in transmission are poorly explained by the behavioural data streams used. This will help generate hypothesis around unmeasured drivers of transmission such as immunity heterogeneity, behaviour not captured by nominated streams, or surveillance artefacts including changes to reporting.
-
 
 # Methods
 
@@ -51,11 +50,9 @@ Where possible, analyses will use data as it would have been available at each t
 
 ## Analysis workflow
 
-1.  **Harmonisation:** Temporal alignment of daily and weekly series to a common weekly cadence, noting where publication lags mean that a given source would not have been available on a given date e.g. ONS CIS data being released with \~2 week delay. 
+1.  **Harmonisation:** Temporal alignment of daily and weekly series to a common weekly cadence, noting where publication lags mean that a given source would not have been available on a given date e.g. ONS CIS data being released with \~2 week delay. Behavioural covariates will be standardised (z-scored) prior to model fitting, meaning coefficients are directly comparable across streams in terms of marginal association with transmission. Raw units will be retained for EDA and interpretation. For Google Mobility, a single composite time series will be derived from the six spatial categories via a weighted average.
 
-Behavioural covariates will be standardised (z-scored) prior to model fitting, meaning coefficients are directly comparable across streams in terms of marginal association with transmission. Raw units will be retained for EDA and interpretation. For Google Mobility, a single composite time series will be derived from the six spatial categories via a weighted average. 
-
-*To discuss* Weekly or daily resolution, and either aggregation method (daily to weekly) or interpolation (weekly to daily).
+**To discuss** Weekly or daily resolution, and either aggregation method (daily to weekly) or interpolation (weekly to daily).
 
 2.  $R_t$ **estimation:** $R_t$ estimates will be obtained from the `{inc2prev}` package, which infers instantaneous growth rate from ONS CIS prevalence data. As a first pass, use the posterior mean however the uncertainty can later be propagated throughout EDA and analysis steps. $R_t$ is used in exploratory analysis (see below), whereas incidence in the primary outcome of regression models.
 3.  **Exploratory analysis:** Examine relationship between behavioural indicators and $R_t$, starting with cross-correlation functions (CCF) over lags of -4 to +4 weeks, stratified by pandemic period, since behaviour-transmission associations vary across NPI and immunity context.
@@ -85,7 +82,7 @@ where $\alpha_0$ is a baseline log-transmission rate and $s(t)$ is a spline capt
 
 Behavioural data streams $X_t$ include Google Mobility, OxCGRT stringency, and, for CoMix, the dominant eigenvalue $\lambda_1(t)$ of the next-generation matrix $NGM(t) = \text{diag}(\vec{s})\, C(t)\, \text{diag}(\vec{i})$ where $C(t)$ is the CoMix contact matrix, $\vec{s}$ antibody-informed susceptibilities and $\vec{i}$ age-specific infectiousness (following Munday et al., 2023). Using $\lambda_1(t)$ as the CoMix-derived covariate reduces the contact matrix to a single scalar encoding mixing patterns and susceptibility, in a comparable format to other data streams.
 
-The choice of link function used in the GLM/GAM framework is Poisson by default, however alternatives may be explored e.g. Negative Binomial depending on the observed distribution of incidence. *Elaborate in context of e.g. EpiEstim*
+The choice of link function used in the GLM/GAM framework is Poisson by default, however alternatives may be explored e.g. Negative Binomial depending on the observed distribution of incidence. **Elaborate in context of e.g. EpiEstim**
 
 **Forecasting framework:** Use rolling origin validation. Fit on weeks 1-N, then forecast to weeks N+1 to N+4, stepping foreward each time. Future behavioural covariates will be assumed to remain constant for now e.g. assume they retain the last observed value (as in Munday et al.) and revisit these assumptions in subsequent work. Forecasted incidence is the directly predicted outcome of the regression model.
 
@@ -94,7 +91,6 @@ The choice of link function used in the GLM/GAM framework is Poisson by default,
 Models will be fit on the full 2020-2022 study period as the primary analysis, with stratified analyses by pandemic period (broadly reflecting different variants) and age group at granularity supported by both ONS CIS and CoMix as secondary analysis. This is a pre-cursor to more granular socioeconomic stratifications planned in subsequent behavioural driver work. Pandemic periods will be defined broadly by variant emergence and key NPI transitions following established conventions (e.g. Munday et al. or Gimma et al.)
 
 **Incremental explained variation:** Partial $R^2$ will quantify how much additional variance in incidence is explained by adding a given behavioural stream beyond the autoregressive baseline. This will be reported (i) overall across the full study period, and (ii) stratified by pandemic period and age group, with uncertainty quantified over rolling windows. **NB:** Check McFadden $R^2$ o.e. that compares goodness-of-fit / improvement in log-likelihood. Stratified results characterise when and for whom each stream is most informative and where failure modes arise.
-
 
 **Forecast accuracy:** Continuous Ranked Probability Score (CRPS) via `{scoringutils}` to evaluate distributional forecasts at 1-4 week horizons, alongside bias and coverage. CRPS is preferred over WIS here as it applies to posterior trajectory samples rather than requiring defined quantile estimates, and decomposes cleanly into underprediction, overprediction and dispersion components. Forecast dates will be stratified by pandemic period. The Omicron period (predominantly 2022) will be excluded due to unprecedented immune dynamics, following Munday et al.
 
