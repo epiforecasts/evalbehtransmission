@@ -1,10 +1,7 @@
 library(dplyr)
 library(readr)
 
-remotes::install_local("../inc2prev-main")
 library(inc2prev)
-
-setwd("/Users/lukeburton/Desktop/PhD_Code/Year_1/evalbehtransmission")
 
 # 1. Process ONS prevalence/incidence data -------------------------------------
 ons_estimates <- read_csv("data/ONS/estimates_national.csv")

@@ -1,10 +1,8 @@
 library(tidyverse)
 library(janitor) # For cleaning names
-setwd("Desktop/PhD_Code/Year_1/evalbehtransmission/R")
 
 # Read in mobility data. WARNING: large file without filtering (1GB)
-mobility_data <- read_csv("~/Desktop/Global_Mobility_Report.csv")
-mobility_data <- read_csv("~/Desktop/PhD_Code/Year_1/evalbehtransmission/data/Global_Mobility_Report.csv")
+mobility_data <- read_csv("data/Global_Mobility_Report.csv")
 
 # Filter for England national data
 # In this case, UK is the country and England the sub_region_1
