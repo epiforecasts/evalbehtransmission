@@ -1,0 +1,32 @@
+Package: evalbehtransmission
+Title: Evaluation of behavioural data and transmission dynamics
+Version: 0.0.0.1000
+Authors@R:
+  c(person(given = "Luke",
+           family = "Burton",
+           role = c("aut", "cre", "cph"),
+           email = "email@lshtm.ac.uk",
+           comment = c(ORCID = "0009-0004-3168-0413"))
+           )
+Description: Code to process and analyse behavioural data, followed by fitting models to COVID-19 incidence in the UK and evaluating forecasts.
+License: MIT + file LICENSE
+URL: https://github.com/epiforecasts/evalbehtransmission/
+BugReports: https://github.com/epiforecasts/evalbehtransmission/issues
+Depends:
+    R (>= 4.0.0)
+Imports:
+  dplyr,
+  readr,
+  EpiEstim,
+  ggplot2,
+  tidyr,
+  stringr,
+  tidyverse,
+  janitor,
+  inc2prev
+Remotes:
+  inc2prev=epiforecasts/inc2prev
+Encoding: UTF-8
+Language: en-GB
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
