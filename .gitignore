@@ -6,3 +6,4 @@
 data/.*csv
 data/.*xlsx
 data/**/*.csv
+.Rbuildignore
