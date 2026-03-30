@@ -1,12 +1,9 @@
-#' Title
+#' Toy function, which raises x to the power of y
 #'
-#' @param x
-#' @param y
+#' @param x Numeric value (base). Default is 5
+#' @param y Numeric value (exponent). Default is 2
 #'
-#' @returns
-#' @export # Can delete - will the function be internal if making package?
-#'
-#' @examples # For CRAN - can delete
+#' @returns x to the power of y
 myfunc <- function(x = 5, y = 2) {
   return(x^y)
 }
