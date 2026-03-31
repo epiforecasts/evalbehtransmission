@@ -21,8 +21,8 @@ Imports:
   ggplot2,
   tidyr,
   stringr,
-  tidyverse,
-  janitor,
+  mgcv,
+  scoringutils,
   inc2prev
 Remotes:
   inc2prev=epiforecasts/inc2prev
