@@ -3,7 +3,8 @@
 .RData
 .Ruserdata
 .DS_Store
-data/.*csv
-data/.*xlsx
-data/**/*.csv
+data-raw/**/*.csv
+!data-raw/ONS/estimates_national.csv
+data-raw/**/*.xlsx
+data-processed/**/*.csv
 .Rbuildignore
