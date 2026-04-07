@@ -435,10 +435,267 @@ cat("Models saved.\n")
 # Extend baseline with:
 #   log(E[I_t]) = alpha_0 + beta_comix * lambda1_std_{t-l} + log(Lambda_t)
 
+# 1. Load harmonised data and ensure Lambda_t is present
+if (!exists("dat")) dat <- readRDS("data-processed/harmonised_daily.rds")
+
+# Recompute Lambda_t if running section 8 standalone (section 7 not yet run)
+if (!"Lambda_t" %in% names(dat)) {
+  gi_mean  <- 5.5; gi_sd <- 2.1; max_lag <- 14L
+  gi_shape <- (gi_mean / gi_sd)^2
+  gi_rate  <- gi_mean / gi_sd^2
+  w        <- diff(pgamma(0:max_lag, shape = gi_shape, rate = gi_rate))
+  w        <- w / sum(w)
+  lag_matrix   <- embed(dat$incidence, max_lag + 1L)[, -1, drop = FALSE]
+  dat$Lambda_t <- c(rep(NA_real_, max_lag), as.vector(lag_matrix %*% w))
+}
+
+# Rebuild dat_model if section 7 did not run in this session
+if (!exists("dat_model")) {
+  dat_model <- dat |>
+    slice(-(1:14L)) |>
+    filter(!is.na(incidence), !is.na(Lambda_t), Lambda_t > 0) |>
+    mutate(t = seq_len(n()))
+}
+
+# 2. Restrict to rows where lambda1_std is observed (drops early lockdown rounds)
+dat_model_comix <- dat_model |>
+  filter(!is.na(lambda1_std))
+cat("dat_model_comix rows retained:", nrow(dat_model_comix), "\n")
+
+# 3. Fit CoMix GAM
+#    lambda1_std enters linearly: log-linear effect on Rt is the natural
+#    functional form (eigenvalue scales multiplicatively with transmission).
+#    s(t) absorbs residual time-varying transmission not explained by lambda1_std.
+fit_comix <- mgcv::gam(
+  incidence ~ s(t, k = 40) + lambda1_std + offset(log(Lambda_t)),
+  family = poisson(),
+  data   = dat_model_comix
+)
+
+# 4. Diagnostics
+cat("\nCoMix GAM AIC:", AIC(fit_comix), "\n")
+
+# exp(beta) = multiplicative effect on Rt per 1-SD increase in lambda1
+beta_comix <- coef(fit_comix)["lambda1_std"]
+se_comix   <- sqrt(diag(vcov(fit_comix)))["lambda1_std"]
+cat(sprintf("lambda1_std: exp(coef) = %.3f  (95%% CI: %.3f -- %.3f)\n",
+            exp(beta_comix),
+            exp(beta_comix - 1.96 * se_comix),
+            exp(beta_comix + 1.96 * se_comix)))
+
+# Delta-AIC vs baseline GAM — approximate: the two models differ in row set
+# (CoMix model drops early rounds where lambda1 is NA)
+if (exists("fit_baseline_gam")) {
+  cat(sprintf("Delta-AIC vs baseline GAM: %.1f  (NOTE: approximate — different row sets)\n",
+              AIC(fit_comix) - AIC(fit_baseline_gam)))
+} else {
+  cat("fit_baseline_gam not found in environment — load data-processed/fit_baseline_gam.rds to compare\n")
+}
+
+# 5. Plot observed vs fitted
+dat_model_comix$fitted_comix <- fitted(fit_comix)
+
+p_fit_comix <- ggplot(dat_model_comix, aes(x = date)) +
+  geom_line(aes(y = incidence),    colour = "grey60",    linewidth = 0.4) +
+  geom_line(aes(y = fitted_comix), colour = "darkorange", linewidth = 0.8) +
+  labs(title = "CoMix GAM: observed vs fitted incidence",
+       subtitle = "Grey = observed  |  Orange = fitted (s(t) + lambda1_std)",
+       x = "Date", y = "Infections / day") +
+  theme_minimal()
+
+ggsave("outputs/fit_comix.png", p_fit_comix, width = 10, height = 4, dpi = 150)
+cat("Plot saved to outputs/fit_comix.png\n")
+
+# 6. Save model object
+saveRDS(fit_comix, "data-processed/fit_comix.rds")
+cat("Model saved to data-processed/fit_comix.rds\n")
+
 
 # -----------------------------------------------------------------------------
 # SECTION 9 — Mobility model: add mobility_retail_std as covariate
 # -----------------------------------------------------------------------------
 # Extend baseline with:
 #   log(E[I_t]) = alpha_0 + beta_mob * mobility_retail_std_{t-l} + log(Lambda_t)
+
+# 1. Load harmonised data and ensure Lambda_t is present
+if (!exists("dat")) dat <- readRDS("data-processed/harmonised_daily.rds")
+
+# Recompute Lambda_t if running section 9 standalone (section 7 not yet run)
+if (!"Lambda_t" %in% names(dat)) {
+  gi_mean  <- 5.5; gi_sd <- 2.1; max_lag <- 14L
+  gi_shape <- (gi_mean / gi_sd)^2
+  gi_rate  <- gi_mean / gi_sd^2
+  w        <- diff(pgamma(0:max_lag, shape = gi_shape, rate = gi_rate))
+  w        <- w / sum(w)
+  lag_matrix   <- embed(dat$incidence, max_lag + 1L)[, -1, drop = FALSE]
+  dat$Lambda_t <- c(rep(NA_real_, max_lag), as.vector(lag_matrix %*% w))
+}
+
+# Rebuild dat_model if section 7 did not run in this session
+if (!exists("dat_model")) {
+  dat_model <- dat |>
+    slice(-(1:14L)) |>
+    filter(!is.na(incidence), !is.na(Lambda_t), Lambda_t > 0) |>
+    mutate(t = seq_len(n()))
+}
+
+# 2. Restrict to rows where mobility_retail_std is observed
+dat_model_mobility <- dat_model |>
+  filter(!is.na(mobility_retail_std))
+cat("dat_model_mobility rows retained:", nrow(dat_model_mobility), "\n")
+
+# 3. Fit mobility GAM
+#    mobility_retail_std enters linearly on log(Rt).
+#    NOTE: mobility_retail is negatively coded (percent change from baseline,
+#    so stricter lockdown = more negative values). We therefore expect a
+#    positive coefficient: higher retail activity -> higher Rt.
+#    s(t) absorbs residual time-varying transmission not explained by mobility.
+fit_mobility <- mgcv::gam(
+  incidence ~ s(t, k = 40) + mobility_retail_std + offset(log(Lambda_t)),
+  family = poisson(),
+  data   = dat_model_mobility
+)
+
+# 4. Diagnostics
+cat("\nMobility GAM AIC:", AIC(fit_mobility), "\n")
+
+# exp(beta) = multiplicative effect on Rt per 1-SD increase in mobility_retail_std
+beta_mob <- coef(fit_mobility)["mobility_retail_std"]
+se_mob   <- sqrt(diag(vcov(fit_mobility)))["mobility_retail_std"]
+cat(sprintf("mobility_retail_std: exp(coef) = %.3f  (95%% CI: %.3f -- %.3f)\n",
+            exp(beta_mob),
+            exp(beta_mob - 1.96 * se_mob),
+            exp(beta_mob + 1.96 * se_mob)))
+
+# Delta-AIC vs baseline GAM — approximate: models may differ in row set
+# if mobility has leading/trailing NAs not present in the baseline sample
+if (exists("fit_baseline_gam")) {
+  cat(sprintf("Delta-AIC vs baseline GAM: %.1f  (NOTE: approximate — different row sets)\n",
+              AIC(fit_mobility) - AIC(fit_baseline_gam)))
+} else {
+  cat("fit_baseline_gam not found in environment — load data-processed/fit_baseline_gam.rds to compare\n")
+}
+
+# 5. Plot observed vs fitted
+dat_model_mobility$fitted_mobility <- fitted(fit_mobility)
+
+p_fit_mobility <- ggplot(dat_model_mobility, aes(x = date)) +
+  geom_line(aes(y = incidence),       colour = "grey60",   linewidth = 0.4) +
+  geom_line(aes(y = fitted_mobility), colour = "steelblue", linewidth = 0.8) +
+  labs(title = "Mobility GAM: observed vs fitted incidence",
+       subtitle = "Grey = observed  |  Blue = fitted (s(t) + mobility_retail_std)",
+       x = "Date", y = "Infections / day") +
+  theme_minimal()
+
+ggsave("outputs/fit_mobility.png", p_fit_mobility, width = 10, height = 4, dpi = 150)
+cat("Plot saved to outputs/fit_mobility.png\n")
+
+# 6. Save model object
+saveRDS(fit_mobility, "data-processed/fit_mobility.rds")
+cat("Model saved to data-processed/fit_mobility.rds\n")
+
+
+# -----------------------------------------------------------------------------
+# SECTION 10 — Model comparison: baseline GAM, CoMix GAM, mobility GAM
+# -----------------------------------------------------------------------------
+# Compare all three fitted renewal GAMs on AIC and fitted-vs-observed plots.
+# NOTE: delta-AIC comparisons across models fitted on different row sets
+# (CoMix drops early NAs; mobility may have trailing NAs) are approximate
+# and should be interpreted cautiously — they are informative only within
+# the overlapping period.
+
+# 1. Load model objects if not already in the environment
+if (!exists("fit_baseline_gam")) fit_baseline_gam <- readRDS("data-processed/fit_baseline_gam.rds")
+if (!exists("fit_comix"))        fit_comix        <- readRDS("data-processed/fit_comix.rds")
+if (!exists("fit_mobility"))     fit_mobility     <- readRDS("data-processed/fit_mobility.rds")
+
+# nobs() gives the number of rows each model was actually fitted on
+aic_table <- data.frame(
+  model     = c("baseline GAM", "CoMix GAM", "mobility GAM"),
+  n_obs     = c(nobs(fit_baseline_gam), nobs(fit_comix), nobs(fit_mobility)),
+  AIC       = c(AIC(fit_baseline_gam),  AIC(fit_comix),  AIC(fit_mobility))
+)
+aic_table$delta_AIC <- aic_table$AIC - AIC(fit_baseline_gam)
+
+# 2. Print comparison table
+cat("\nModel comparison (delta_AIC relative to baseline GAM):\n")
+print(aic_table, row.names = FALSE, digits = 4)
+cat("(!) delta_AIC comparisons across models with different row sets are approximate\n")
+
+# 3. Fitted-vs-observed plot — three panels, shared y-axis scale
+#    Ensure dat_model, dat_model_comix, dat_model_mobility are present with
+#    a date column.  gam()$model stores only the model matrix (no date), so
+#    we reconstruct from harmonised_daily.rds if sections 7-9 did not run.
+if (!exists("dat_model") || !"date" %in% names(dat_model)) {
+  if (!exists("dat")) dat <- readRDS("data-processed/harmonised_daily.rds")
+  if (!"Lambda_t" %in% names(dat)) {
+    gi_mean <- 5.5; gi_sd <- 2.1; max_lag <- 14L
+    w <- diff(pgamma(0:max_lag, shape = (gi_mean/gi_sd)^2, rate = gi_mean/gi_sd^2))
+    w <- w / sum(w)
+    dat$Lambda_t <- c(rep(NA_real_, max_lag),
+                      as.vector(embed(dat$incidence, max_lag + 1L)[, -1, drop = FALSE] %*% w))
+  }
+  dat_model <- dat |>
+    slice(-(1:14L)) |>
+    filter(!is.na(incidence), !is.na(Lambda_t), Lambda_t > 0) |>
+    mutate(t = seq_len(n()))
+}
+if (!exists("dat_model_comix") || !"date" %in% names(dat_model_comix)) {
+  dat_model_comix <- dat_model |> filter(!is.na(lambda1_std))
+}
+if (!exists("dat_model_mobility") || !"date" %in% names(dat_model_mobility)) {
+  dat_model_mobility <- dat_model |> filter(!is.na(mobility_retail_std))
+}
+
+fitted_baseline <- dat_model |>
+  select(date, incidence) |>
+  mutate(fitted = fitted(fit_baseline_gam), model = "Baseline GAM")
+
+fitted_comix <- dat_model_comix |>
+  select(date, incidence) |>
+  mutate(fitted = fitted(fit_comix), model = "CoMix GAM")
+
+fitted_mobility <- dat_model_mobility |>
+  select(date, incidence) |>
+  mutate(fitted = fitted(fit_mobility), model = "Mobility GAM")
+
+all_fitted <- bind_rows(fitted_baseline, fitted_comix, fitted_mobility) |>
+  mutate(model = factor(model, levels = c("Baseline GAM", "CoMix GAM", "Mobility GAM")))
+
+# Shared y-axis limits across panels so fits are visually comparable
+y_max <- max(all_fitted$incidence, all_fitted$fitted, na.rm = TRUE)
+
+p_comparison <- ggplot(all_fitted, aes(x = date)) +
+  geom_line(aes(y = incidence), colour = "grey60",   linewidth = 0.4) +
+  geom_line(aes(y = fitted),    colour = "firebrick", linewidth = 0.7) +
+  facet_wrap(~ model, ncol = 1) +
+  coord_cartesian(ylim = c(0, y_max)) +
+  labs(title = "Renewal GAMs: observed vs fitted incidence",
+       subtitle = "Grey = observed  |  Red = fitted",
+       x = "Date", y = "Infections / day") +
+  theme_minimal() +
+  theme(strip.text = element_text(face = "bold"))
+
+ggsave("outputs/fit_comparison.png", p_comparison,
+       width = 12, height = 8, dpi = 150)
+cat("Plot saved to outputs/fit_comparison.png\n")
+
+# 4. Pearson residuals plot — three panels, reference line at zero
+#    Pearson residual = (observed - fitted) / sqrt(fitted) under Poisson
+all_fitted <- all_fitted |>
+  mutate(pearson_resid = (incidence - fitted) / sqrt(fitted))
+
+p_residuals <- ggplot(all_fitted, aes(x = date, y = pearson_resid)) +
+  geom_line(colour = "steelblue", linewidth = 0.4) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
+  facet_wrap(~ model, ncol = 1) +
+  labs(title = "Renewal GAMs: Pearson residuals over time",
+       subtitle = "Systematic departures flag periods where the model fits poorly",
+       x = "Date", y = "Pearson residual") +
+  theme_minimal() +
+  theme(strip.text = element_text(face = "bold"))
+
+ggsave("outputs/residuals_comparison.png", p_residuals,
+       width = 12, height = 8, dpi = 150)
+cat("Plot saved to outputs/residuals_comparison.png\n")
 # =============================================================================
