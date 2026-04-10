@@ -1,0 +1,4 @@
+"Model","N_obs","AIC","In_sample_cor"
+"Baseline GAM",1039,1864953,0.985
+"+ CoMix lambda1",663,325608,0.9953
+"+ Mobility",903,1186601,0.9892
