@@ -8,7 +8,8 @@ Authors@R:
            email = "luke.burton1@student.lshtm.ac.uk",
            comment = c(ORCID = "0009-0004-3168-0413"))
            )
-Description: Code to process and analyse behavioural data, followed by fitting models to COVID-19 incidence in the UK and evaluating forecasts.
+Description: Code to process and analyse behavioural data, followed by fitting models to COVID-19 incidence in the UK using different individual and combinations of behavioural datasets. 
+Models are evaluated using forecast performance to identify the combination of data streams that best explains changes in transmission dynamics. 
 License: MIT + file LICENSE
 URL: https://github.com/epiforecasts/evalbehtransmission/
 BugReports: https://github.com/epiforecasts/evalbehtransmission/issues
