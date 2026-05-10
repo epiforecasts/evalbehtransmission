@@ -7,6 +7,7 @@
 #
 # Downstream use: next-generation matrix construction
 
+install.packages("socialmixr")
 library(socialmixr)
 library(data.table)
 library(tidyverse)
@@ -18,10 +19,12 @@ output_dir <- "data-processed/comix_eigenvalues.csv"
 
 # Age limits: align with ONS CIS antibody data bins and CoMix ranges
 age_limits <- c(2, 11, 16, 25, 35, 50, 70)
-age_limits <- c(0, 18, 30, 45, 60, 75)
-# Survey population, used to get age-based population counts for weights
-# Alternatively, can hard-code population sizes for reproducibility
-survey_pop = "United Kingdom"
+# Survey population: England 2020, from inc2prev populations.csv, aligned to age_limits above.
+# Do NOT use survey_pop = "United Kingdom" — socialmixr's bundled WPP data only goes to 2015
+# and uses 5-year bands that don't align to age_limits, causing interpolation artefacts.
+survey_pop <- read.csv("data-raw/inc2prev-main/data-processed/populations.csv") |>
+  dplyr::filter(level == "age_school", geography == "England") |>
+  dplyr::select(lower.age.limit = lower_age_limit, population)
 
 
 ## Load and merge data ---------------------------------------------------------
@@ -128,7 +131,8 @@ calculate_dom_eigenvalues <- function(wave_data) {
     
     lambda1 <- NA_real_
     
-    if (!is.null(wd$matrix) && !all(is.na(wd$matrix))) {
+    # Skip waves where matrix contains NA/Inf — sparse early waves; lambda1 stays NA
+    if (!is.null(wd$matrix) && all(is.finite(wd$matrix))) {
       
       NGM <- wd$matrix
       
@@ -258,97 +262,3 @@ if (is.null(NGM1) || !all(is.finite(NGM1))) {
 }
 
 ## End single-wave diagnostic ---------------------------------------------------
-
-
-# For each survey round, build the NGM: diag(s_vec) %*% C(t) %*% diag(i_vec),
-# where C(t) is the age-stratified contact matrix, s_vec are age-specific
-# susceptibilities, and i_vec are age-specific infectiousness.
-# MVP placeholder: s_vec = i_vec = 1 (identity scaling), so NGM = C(t).
-# Next step: replace with antibody-informed susceptibilities (ONS CIS) and
-# age-specific infectiousness following Munday et al. 2023.
-# Output: data frame lambda1_waves with columns wave, date, lambda1.
-
-comix_raw <- tryCatch(
-  socialmixr::get_survey("https://doi.org/10.5281/zenodo.13684044"),
-  error = function(e) {
-    message("Remote fetch failed, falling back to local CSVs: ", e$message)
-    socialmixr::survey(
-      participants = data.table::fread("data-raw/CoMix/participants.csv"),
-      contacts     = data.table::fread("data-raw/CoMix/contacts.csv")
-    )
-  }
-)
-
-# Inspect column names before assuming anything
-cat("Participant columns:\n"); print(names(comix_raw$ oparticipants))
-cat("Contact columns:\n");     print(names(comix_raw$contacts))
-
-# Identify the participant ID and wave columns from what is actually present
-part_id_col <- intersect(c("part_id", "participant_id"), names(comix_raw$participants))[1]
-# Use survey_round (not wave): wave is a recruitment cohort label spanning months,
-# survey_round is the actual per-round time window (~weekly)
-wave_col    <- intersect(c("survey_round", "wave"), names(comix_raw$participants))[1]
-if (is.na(wave_col)) stop("Cannot identify survey round column: expected 'survey_round' or 'wave' in participants")
-
-# Standardise participant ID column to 'part_id' in both data frames so
-# socialmixr::survey() can find it by its expected name
-names(comix_raw$participants)[names(comix_raw$participants) == part_id_col] <- "part_id"
-names(comix_raw$contacts)[names(comix_raw$contacts)    == part_id_col] <- "part_id"
-
-# Cap contacts at 50 per participant to reduce leverage from outliers
-# (wave is only in participants, not contacts — group by participant ID only)
-# Base R only: avoids data.table j-expression scoping errors entirely
-contacts_df <- as.data.frame(comix_raw$contacts)
-contacts_df <- do.call(rbind, lapply(
-  split(contacts_df, contacts_df[["part_id"]]),
-  function(x) x[seq_len(min(nrow(x), 50)), ]
-))
-comix_raw$contacts <- contacts_df
-
-uk_pop <- data.frame(
-  lower.age.limit = c(0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75),
-  population      = c(3950000, 4100000, 3900000, 3750000, 4200000, 4300000,
-                      4500000, 4700000, 4600000, 4400000, 4500000, 4200000,
-                      3800000, 3200000, 2800000, 3100000)
-)
-
-waves <- sort(unique(comix_raw$participants[[wave_col]]))
-
-lambda1_waves <- lapply(waves, function(w) {
-  
-  # Subset participants to this wave, then contacts by matching participant IDs
-  p <- comix_raw$participants[comix_raw$participants[[wave_col]] == w, ]
-  wave_ids <- p[["part_id"]]
-  c <- comix_raw$contacts[comix_raw$contacts[["part_id"]] %in% wave_ids, ]
-  wave_survey <- socialmixr::survey(participants = p, contacts = c)
-  
-  # Representative date: median survey date minus 1 day (contacts = day prior)
-  # lubridate::as_date() handles non-standard formats more robustly than as.Date()
-  date_col <- intersect(c("date", "survey_date", "sday_id"), names(p))[1]
-  wave_date <- median(lubridate::as_date(p[[date_col]]), na.rm = TRUE) - 1
-  
-  lambda1 <- tryCatch({
-    cm <- socialmixr::contact_matrix(
-      wave_survey,
-      age_limits      = c(0, 18, 30, 45, 60, 75),
-      symmetric       = TRUE,
-      weigh_dayofweek = TRUE,
-      survey_pop      = uk_pop
-    )$matrix
-    
-    if (is.null(cm) || all(is.na(cm))) stop("all-NA matrix")
-    
-    # MVP: uniform s_vec and i_vec (= 1); NGM reduces to C itself
-    # Next step: scale by ONS seroprevalence following Munday et al. 2023
-    NGM <- diag(rep(1, nrow(cm))) %*% cm %*% diag(rep(1, nrow(cm)))
-    max(Re(eigen(NGM, only.values = TRUE)$values))
-  }, error = function(e) {
-    message("Wave ", w, " skipped: ", e$message)
-    NA_real_
-  })
-  
-  data.frame(wave = w, date = wave_date, lambda1 = lambda1)
-})
-
-lambda1_waves <- do.call(rbind, lambda1_waves)
-print(lambda1_waves)
