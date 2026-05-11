@@ -78,6 +78,9 @@ compute_wave_matrices <- function(data_list, age_limits, survey_pop) {
     p_wave <- participants[survey_round == w]
     c_wave <- contacts[part_id %in% p_wave$part_id]
     
+    # Cap contacts at 50 per person for stability
+    c_wave <- c_wave[, head(.SD, 50), by = part_id]
+    
     # Calculate median contact date for this wave
     dates <- as.Date(p_wave$sday_id, format = "%Y.%m.%d")
     wave_date <- median(dates, na.rm = TRUE) - 1
