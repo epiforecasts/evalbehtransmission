@@ -29,6 +29,12 @@ rt_national <- ons_estimates |>
 write_csv(incidence_national, "data-processed/incidence_national.csv")
 write_csv(rt_national,        "data-processed/rt_national.csv")
 
+
+
+
+
+## PREVALENCE plots -----------
+
 # Age-stratified prevalence from ONS CIS (proportion positive within each age group)
 # Each date has multiple estimates based on different sources? Must fix to avoid overcounting
 # UPDATE: There's clearly data from different publication dates. Filter to the latest one.
@@ -64,7 +70,7 @@ cis_age_pop <- cis_age |>
 
 population_prev <- cis_age_pop |> summarise(prev_avg = sum(prev_in_total_pop), .by = mid_date)
 
-## Plot 1: Prevalence per capita in total population
+# Plot 1: Prevalence per capita in total population
 prev_totalpop_plot <- ggplot(population_prev, aes(x = mid_date, y = prev_avg)) +
   geom_line() +
   scale_y_continuous(labels = scales::percent) +
@@ -77,7 +83,7 @@ prev_totalpop_plot <- ggplot(population_prev, aes(x = mid_date, y = prev_avg)) +
 
 ggsave("outputs/prevalence_total_pop.png", prev_totalpop_plot, width = 10, height = 5)
 
-## Plot 2: Prevalence per capita within each age group, with population average overlay
+# Plot 2: Prevalence per capita within each age group, with population average overlay
 prev_byage_plot <- ggplot(cis_age_pop, aes(x = mid_date, y = prev,
                                            colour = age_group, fill = age_group)) +
   #geom_ribbon() +
@@ -94,3 +100,47 @@ prev_byage_plot <- ggplot(cis_age_pop, aes(x = mid_date, y = prev,
   theme_classic()
 
 ggsave("outputs/prevalence_by_age.png", prev_byage_plot, width = 10, height = 5)
+
+
+## INCIDENCE plots -----------
+incidence_age <- read_csv("data-raw/inc2prev-main/outputs/estimates_age.csv") |>
+  filter(level == "age_school", name == "infections") |> # Implicitly, is this data for only England?
+  select(date, age_group = variable, inc = q50, inc_q05 = q5, inc_q95 = q95) |>
+  mutate(age_group = factor(age_group, levels = age_labels))
+
+age_populations_labelled <- age_populations |>
+  mutate(age_group = factor(age_labels[as.character(lower_age_limit)], levels = age_labels))
+
+incidence_age_pop <- incidence_age |>
+  left_join(age_populations_labelled, by = "age_group") |>
+  mutate(inc_per_capita = inc / age_pop,
+         inc_in_total_pop = inc / total_pop)
+
+population_inc <- incidence_age_pop |> summarise(inc_avg = sum(inc_in_total_pop), .by = date)
+
+# Plot 3: Incidence per capita in total population
+inc_totalpop_plot <- ggplot(population_inc, aes(x = date, y = inc_avg)) +
+  geom_line() +
+  labs(
+    x = NULL,
+    y = "Daily incidence per capita (total population)",
+    title = "ONS CIS: COVID-19 population incidence in England"
+  ) +
+  theme_classic()
+
+ggsave("outputs/incidence_total_pop.png", inc_totalpop_plot, width = 10, height = 5)
+
+# Plot 4: Incidence per capita within each age group, with population average overlay
+inc_byage_plot <- ggplot(incidence_age_pop, aes(x = date, y = inc_per_capita, colour = age_group)) +
+  geom_line() +
+  geom_line(data = population_inc, aes(x = date, y = inc_avg),
+            colour = "black", linewidth = 1, linetype = "dashed", inherit.aes = FALSE) +
+  labs(
+    x = NULL,
+    y = "Daily incidence per capita (within age group)",
+    title = "ONS CIS: COVID-19 incidence by age group in England",
+    caption = "Dashed line: population average"
+  ) +
+  theme_classic()
+
+ggsave("outputs/incidence_by_age.png", inc_byage_plot, width = 10, height = 5)
