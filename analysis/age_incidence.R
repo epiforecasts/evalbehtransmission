@@ -95,31 +95,31 @@ incidence_age <- read_csv(inc2prev_path("outputs/estimates_age.csv")) |>
 
 incidence_age_pop <- incidence_age |>
   left_join(age_populations_labelled, by = "age_group") |>
-  mutate(inc_per_capita = inc / age_pop,
-         inc_in_total_pop = inc / total_pop)
+  mutate(inc_per_1000     = inc / age_pop * 1000,
+         inc_in_total_pop = inc / total_pop * 1000)
 
 population_inc <- incidence_age_pop |> summarise(inc_avg = sum(inc_in_total_pop), .by = date)
 
-# Plot 3: Incidence per capita in total population
+# Plot 3: Incidence per 1,000 in total population
 inc_totalpop_plot <- ggplot(population_inc, aes(x = date, y = inc_avg)) +
   geom_line() +
   labs(
     x = NULL,
-    y = "Daily incidence per capita (total population)",
+    y = "Daily incidence per 1,000 (total population)",
     title = "ONS CIS: COVID-19 population incidence in England"
   ) +
   theme_classic()
 
 ggsave("outputs/incidence_total_pop.png", inc_totalpop_plot, width = 10, height = 5)
 
-# Plot 4: Incidence per capita within each age group, with population average overlay
-inc_byage_plot <- ggplot(incidence_age_pop, aes(x = date, y = inc_per_capita, colour = age_group)) +
+# Plot 4: Incidence per 1,000 within each age group, with population average overlay
+inc_byage_plot <- ggplot(incidence_age_pop, aes(x = date, y = inc_per_1000, colour = age_group)) +
   geom_line() +
   geom_line(data = population_inc, aes(x = date, y = inc_avg),
             colour = "black", linewidth = 1, linetype = "dashed", inherit.aes = FALSE) +
   labs(
     x = NULL,
-    y = "Daily incidence per capita (within age group)",
+    y = "Daily incidence per 1,000 (within age group)",
     title = "ONS CIS: COVID-19 incidence by age group in England",
     caption = "Dashed line: population average"
   ) +
