@@ -178,17 +178,13 @@ summarise_scores(scores_daily, by = c("model", "horizon"))
 
 
 # Compute forecast quantiles across samples for each horizon day
-forecast_quantiles <- forecasts |>
-  group_by(target_date, horizon) |>
-  summarise(
-    observed = first(observed),
-    q05      = quantile(predicted, 0.05),
-    q25      = quantile(predicted, 0.25),
-    q50      = quantile(predicted, 0.50),
-    q75      = quantile(predicted, 0.75),
-    q95      = quantile(predicted, 0.95),
-    .groups  = "drop"
-  )
+forecast_quantiles <- as_forecast_quantile(
+  fc,
+  quantile_level = c(0.05, 0.25, 0.50, 0.75, 0.95)
+) |>
+  as_tibble() |>
+  pivot_wider(names_from = quantile_level, values_from = predicted) |>
+  rename(q05 = `0.05`, q25 = `0.25`, q50 = `0.5`, q75 = `0.75`, q95 = `0.95`)
 
 p_forecast <- ggplot() +
   geom_line(data = rt_train, aes(x = date, y = incidence),
@@ -301,17 +297,13 @@ summarise_scores(scores_all, by = c("model", "forecast_date"))
 
 
 # Compute quantiles per forecast date and target date
-all_quantiles <- all_forecasts |>
-  group_by(forecast_date, target_date) |>
-  summarise(
-    observed = first(observed),
-    q05      = quantile(predicted, 0.05),
-    q25      = quantile(predicted, 0.25),
-    q50      = quantile(predicted, 0.50),
-    q75      = quantile(predicted, 0.75),
-    q95      = quantile(predicted, 0.95),
-    .groups  = "drop"
-  )
+all_quantiles <- as_forecast_quantile(
+  fc_all,
+  quantile_level = c(0.05, 0.25, 0.50, 0.75, 0.95)
+) |>
+  as_tibble() |>
+  pivot_wider(names_from = quantile_level, values_from = predicted) |>
+  rename(q05 = `0.05`, q25 = `0.25`, q50 = `0.5`, q75 = `0.75`, q95 = `0.95`)
 
 p_rolling <- ggplot() +
   geom_ribbon(data = all_quantiles,
