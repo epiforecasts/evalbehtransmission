@@ -22,7 +22,6 @@
 #   Read directly from GitHub by default; set use_remote <- FALSE to use a
 #   local clone in data-raw/inc2prev-main/
 
-install.packages("socialmixr")
 library(socialmixr)
 library(data.table)
 library(tidyverse)
