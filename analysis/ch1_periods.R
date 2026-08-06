@@ -11,7 +11,8 @@ ch1_period_config <- list(
   study_start = as.Date("2020-04-01"),
   study_end   = as.Date("2021-11-30"),
 
-  oxcgrt_path = "data-raw/OxCGRT/OxCGRT_simplified_v1.csv",
+  # oxcgrt_path = "data-raw/OxCGRT/OxCGRT_simplified_v1.csv",
+  oxcgrt_path = "data-raw/OxCGRT/OxCGRT_compact_subnational_v1.csv",
   output_path = "data-processed/ch1_periods.csv",
   plot_dir    = "outputs/ch1"
 )
@@ -38,10 +39,19 @@ load_oxcgrt_england <- function(config = ch1_period_config) {
   read_csv(config$oxcgrt_path, show_col_types = FALSE, guess_max = 1000) |>
     filter(RegionCode == "UK_ENG") |>
     mutate(date = as.Date(as.character(Date), "%Y%m%d")) |>
+    # Simplified file:
+    # select(date,
+    #        school_closing = C1M_combined_numeric,
+    #        stay_at_home   = C6M_combined_numeric,
+    #        stringency     = StringencyIndex_Average) |>
+    # Compact file, which adds flags: 1 = policy applied across England,
+    # 0 = targeted to part of it only.
     select(date,
-           school_closing = C1M_combined_numeric,
-           stay_at_home   = C6M_combined_numeric,
-           stringency     = StringencyIndex_Average) |>
+           school_closing      = `C1M_School.closing`,
+           school_closing_flag = C1M_Flag,
+           stay_at_home        = `C6M_Stay.at.home.requirements`,
+           stay_at_home_flag   = C6M_Flag,
+           stringency          = StringencyIndex_Average) |>
     filter(date >= config$study_start, date <= config$study_end) |>
     arrange(date)
 }
