@@ -7,7 +7,7 @@ library(tidyr)
 
 ## Config ----------------------------------------------------------------------
 
-ch1_config <- list(
+ch1_data_config <- list(
   study_start   = as.Date("2020-04-01"),
   study_end     = as.Date("2021-11-30"),
   use_remote    = TRUE,   # FALSE reads inc2prev from data-raw/inc2prev-main/
@@ -27,7 +27,7 @@ mobility_categories <- c(
 )
 
 inc2prev_path <- function(path) {
-  if (ch1_config$use_remote) {
+  if (ch1_data_config$use_remote) {
     paste0("https://raw.githubusercontent.com/epiforecasts/inc2prev/refs/heads/main/", path)
   } else {
     file.path("data-raw/inc2prev-main", path)
@@ -46,14 +46,14 @@ load_incidence <- function() {
 # comix_eigen is rho(C), the contact matrix eigenvalue, not rho(K): no
 # susceptibility scaling has been applied.
 load_contacts <- function() {
-  read_csv(ch1_config$contacts_path, show_col_types = FALSE) |>
+  read_csv(ch1_data_config$contacts_path, show_col_types = FALSE) |>
     filter(!is.na(lambda1)) |>
     select(date, comix_eigen = lambda1) |>
     arrange(date)
 }
 
 load_mobility <- function() {
-  read_csv(ch1_config$mobility_path, show_col_types = FALSE) |>
+  read_csv(ch1_data_config$mobility_path, show_col_types = FALSE) |>
     select(date, all_of(unname(mobility_categories))) |>
     rename(!!!mobility_categories) |>
     arrange(date)
@@ -73,7 +73,7 @@ expand_to_daily <- function(weekly, value_col, dates) {
 ## Assemble --------------------------------------------------------------------
 
 build_ch1_data <- function() {
-  dates <- seq(ch1_config$study_start, ch1_config$study_end, by = "day")
+  dates <- seq(ch1_data_config$study_start, ch1_data_config$study_end, by = "day")
 
   contacts_daily <- expand_to_daily(load_contacts(), "comix_eigen", dates)
 
@@ -112,5 +112,5 @@ report_coverage <- function(dat) {
 ch1_data <- build_ch1_data()
 report_coverage(ch1_data)
 
-write_csv(ch1_data, ch1_config$output_path)
-message(sprintf("Saved to %s", ch1_config$output_path))
+write_csv(ch1_data, ch1_data_config$output_path)
+message(sprintf("Saved to %s", ch1_data_config$output_path))

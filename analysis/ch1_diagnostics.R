@@ -16,7 +16,7 @@ ch1_diag_config <- list(
 )
 
 # Chosen from the family comparison below, and used for everything after it.
-chosen_family <- "nb"
+chosen_family <- "nb"   # ch1_family in ch1_gam.R must match
 
 make_family <- function(family_name) {
   if (family_name == "poisson") poisson(link = "log") else nb()

@@ -30,6 +30,10 @@ ch1_models <- list(
   combined = c("contacts", "mobility")
 )
 
+# Observation family, chosen in ch1_diagnostics.R and used by every script after
+# it. Stored uncalled so each fit gets a fresh object: nb() carries its theta.
+ch1_family <- nb
+
 ## Generation interval ---------------------------------------------------------
 
 # Drops the day-0 element, so the interval starts at day 1 and assumes no

@@ -15,10 +15,7 @@ ch1_rolling_config <- list(
   last_origin   = as.Date("2021-10-31"),
   horizon_weeks = 4,
   n_sim         = 200,
-
-  # Stored uncalled so each fit gets a fresh family object: nb() carries its
-  # estimated theta.
-  family        = nb,
+  family        = ch1_family,
 
   # Far smaller than the full-period fit: k = 20 over an 84-day window is close
   # to interpolation and the NB fit fails to converge.
@@ -81,8 +78,8 @@ run_window <- function(dat, origin, config = ch1_rolling_config,
   window_start <- origin - config$window_weeks * 7 + 1
   horizon_days <- config$horizon_weeks * 7
 
-  observed <- dat |> filter(date > origin) |> head(horizon_days)
-  if (nrow(observed) < horizon_days) return(NULL)
+  observed_window <- dat |> filter(date > origin) |> head(horizon_days)
+  if (nrow(observed_window) < horizon_days) return(NULL)
 
   incidence_history <- dat |> filter(date <= origin) |> pull(incidence)
 
@@ -116,8 +113,8 @@ run_window <- function(dat, origin, config = ch1_rolling_config,
     forecasts <- simulate_forecast(fits$no_smooth, covariates, incidence_history,
                                    horizon_days, config$n_sim, gi_weights, theta) |>
       mutate(origin = origin, model = model_name,
-             target_date = observed$date[day],
-             observed = observed$incidence[day])
+             target_date = observed_window$date[day],
+             observed = observed_window$incidence[day])
 
     list(coefficients = coefficients, deviance = deviance, forecasts = forecasts)
   })
@@ -142,7 +139,7 @@ windows <- lapply(seq_along(origins), function(i) {
   if (i %% 10 == 0) message("  origin ", i, "/", length(origins))
   run_window(dat, origins[i])
 })
-windows <- Filter(Negate(is.null), windows)
+windows <- windows[!sapply(windows, is.null)]
 
 ## Assemble and save -----------------------------------------------------------
 
