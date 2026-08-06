@@ -5,6 +5,8 @@ library(dplyr)
 library(readr)
 library(tidyr)
 
+source("R/inc2prev_path.R")
+
 ## Config ----------------------------------------------------------------------
 
 ch1_data_config <- list(
@@ -26,18 +28,11 @@ mobility_categories <- c(
   residential       = "residential_percent_change_from_baseline"
 )
 
-inc2prev_path <- function(path) {
-  if (ch1_data_config$use_remote) {
-    paste0("https://raw.githubusercontent.com/epiforecasts/inc2prev/refs/heads/main/", path)
-  } else {
-    file.path("data-raw/inc2prev-main", path)
-  }
-}
-
 ## Loaders ---------------------------------------------------------------------
 
 load_incidence <- function() {
-  read_csv(inc2prev_path("outputs/estimates_national.csv"), show_col_types = FALSE) |>
+  read_csv(inc2prev_path("outputs/estimates_national.csv", ch1_data_config$use_remote),
+           show_col_types = FALSE) |>
     filter(variable == "England", name == "infections") |>
     select(date, incidence = q50) |>
     arrange(date)

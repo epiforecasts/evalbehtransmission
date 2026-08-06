@@ -10,9 +10,7 @@ library(patchwork)
 ch1_diag_config <- list(
   periods_path = "data-processed/ch1_periods.csv",
   plot_dir     = "outputs/ch1",
-  smooth_k     = c(5, 10, 20, 40),
-  inc2prev_url = paste0("https://raw.githubusercontent.com/epiforecasts/inc2prev/",
-                        "refs/heads/main/outputs/estimates_national.csv")
+  smooth_k     = c(5, 10, 20, 40)
 )
 
 # Chosen from the family comparison below, and used for everything after it.
@@ -109,7 +107,7 @@ print_table(acfs |> filter(lag %in% c(1, 7, 14)) |>
 combined_fit <- fits[[chosen_family]]$combined
 
 rt_compare <- bind_rows(
-  read_csv(ch1_diag_config$inc2prev_url, show_col_types = FALSE) |>
+  read_csv(inc2prev_path("outputs/estimates_national.csv"), show_col_types = FALSE) |>
     filter(variable == "England", name == "R") |>
     transmute(date, Rt = q50, source = "inc2prev"),
   combined_fit$model_data |>

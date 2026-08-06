@@ -8,6 +8,7 @@ library(readr)
 library(EpiEstim)
 
 source("R/compute_lambda.R")
+source("R/inc2prev_path.R")
 
 ## Config ----------------------------------------------------------------------
 
