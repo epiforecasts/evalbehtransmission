@@ -9,7 +9,7 @@ library(dplyr)
 library(readr)
 
 # Read in mobility data. WARNING: large file without filtering (1GB)
-google_mobility_raw <- read_csv("data-raw/Global_Mobility_Report.csv")
+google_mobility_raw <- read_csv("data-raw/Mobility/Global_Mobility_Report.csv")
 
 google_mobility_UK <- google_mobility_raw |>
   filter(country_region == "United Kingdom",
