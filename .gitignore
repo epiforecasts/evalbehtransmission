@@ -8,3 +8,6 @@ data-raw/**/*.csv
 data-raw/**/*.xlsx
 data-processed/**/*.csv
 .Rbuildignore
+
+# Fitted mvgam objects are large (~1.5MB each) and regenerable from stashed/mvgam_demo.R
+stashed/stash_models/*mvgam*.rds
