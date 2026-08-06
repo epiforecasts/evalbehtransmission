@@ -23,7 +23,7 @@ ch1_gam_config <- list(
   input_path = "data-processed/ch1_covariates.csv"
 )
 
-ch1_variants <- list(
+ch1_models <- list(
   baseline = character(0),
   contacts = "contacts",
   mobility = "mobility",
@@ -71,7 +71,7 @@ build_model_frame <- function(dat, covariates, lag = 0, gi_weights,
 ## Formula ---------------------------------------------------------------------
 
 # The only place the formula is assembled. The intercept is log(R0). s(t) cannot
-# be extrapolated, so the smooth variant is for explanation, not forecasting.
+# be extrapolated, so the smooth model is for explanation, not forecasting.
 renewal_formula <- function(covariates, use_smooth = FALSE, k = 20) {
   smooth <- if (use_smooth) sprintf("s(t, k = %d)", k)
   reformulate(c("1", smooth, covariates, "offset(log_Lambda)"), response = "incidence")
@@ -136,8 +136,8 @@ if (sys.nframe() == 0) {
   from <- as.Date("2020-09-01")
   to   <- as.Date("2021-01-31")
 
-  for (v in names(ch1_variants)) {
-    m <- fit_renewal_gam(dat, covariates = ch1_variants[[v]],
+  for (v in names(ch1_models)) {
+    m <- fit_renewal_gam(dat, covariates = ch1_models[[v]],
                          fit_from = from, fit_to = to)
 
     cat("\n---", v, "---\n")
@@ -150,7 +150,7 @@ if (sys.nframe() == 0) {
           row.names = FALSE)
   }
 
-  m_smooth <- fit_renewal_gam(dat, ch1_variants$combined, use_smooth = TRUE,
+  m_smooth <- fit_renewal_gam(dat, ch1_models$combined, use_smooth = TRUE,
                               fit_from = from, fit_to = to)
   cat("\n--- combined + s(t) ---\n")
   cat(deparse1(m_smooth$formula), "\n")
