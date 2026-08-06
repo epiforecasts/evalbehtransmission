@@ -20,7 +20,7 @@ ch1_cov_config <- list(
 
   lag = 0,
 
-  input_path  = "data-processed/ch1_analysis_data.csv",
+  input_path  = "data-processed/ch1_data.csv",
   output_path = "data-processed/ch1_covariates.csv",
   plot_dir    = "outputs/ch1"
 )

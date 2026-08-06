@@ -26,7 +26,7 @@ mobility_long <- mobility_UK |>
            str_replace_all("_", " ") |>
            str_to_title())
 
-# Requires 01_process_ons.R to have been run first; alternatively use EpiEstim Rt from 06_estimate_rt.R: read_csv("data-processed/rt_estimates_England.csv")
+# Requires process_ons.R to have been run first; alternatively use EpiEstim Rt from estimate_rt.R: read_csv("data-processed/rt_estimates_England.csv")
 rt_estimates <- read_csv("data-processed/rt_national.csv") |>
   rename(Rt_median = median, Rt_q05 = q05, Rt_q95 = q95) |>
   filter(between(date, as.Date("2020-03-01"), as.Date("2021-12-31")))

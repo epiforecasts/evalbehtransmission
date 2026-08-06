@@ -13,7 +13,7 @@ ch1_config <- list(
   use_remote    = TRUE,   # FALSE reads inc2prev from data-raw/inc2prev-main/
   contacts_path = "data-processed/comix_eigenvalues.csv",
   mobility_path = "data-processed/google_mobility_UK.csv",
-  output_path   = "data-processed/ch1_analysis_data.csv"
+  output_path   = "data-processed/ch1_data.csv"
 )
 
 # All six categories carried through; retention is decided later.
