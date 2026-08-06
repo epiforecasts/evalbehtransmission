@@ -6,8 +6,22 @@
 #   - Weighted by participant weights and age-group population denominators
 #
 # Downstream use: next-generation matrix construction
+#
+# DATA SOURCES
+# CoMix (UK): https://zenodo.org/records/6542524
+#   Not tracked in git (data-raw/**/*.csv is gitignored). To run this script,
+#   download the record and place these four files in data-raw/CoMix/:
+#     CoMix_uk_participant_common.csv
+#     CoMix_uk_contact_common.csv
+#     CoMix_uk_sday.csv
+#     CoMix_uk_participant_extra.csv
+#   TODO: replace the manual fread() calls below with socialmixr::get_survey()
+#   pointing at the Zenodo DOI, which removes the local-file dependency.
+#
+# inc2prev populations: https://github.com/epiforecasts/inc2prev
+#   Read directly from GitHub by default; set use_remote <- FALSE to use a
+#   local clone in data-raw/inc2prev-main/
 
-install.packages("socialmixr")
 library(socialmixr)
 library(data.table)
 library(tidyverse)
@@ -16,6 +30,16 @@ library(tidyverse)
 
 data_dir <- "data-raw/CoMix"
 output_dir <- "data-processed/comix_eigenvalues.csv"
+
+use_remote <- TRUE
+
+inc2prev_path <- function(path) {
+  if (use_remote) {
+    paste0("https://raw.githubusercontent.com/epiforecasts/inc2prev/refs/heads/main/", path)
+  } else {
+    file.path("data-raw/inc2prev-main", path)
+  }
+}
 
 # Age limits: align with ONS CIS antibody data bins and CoMix ranges
 age_limits <- c(2, 11, 16, 25, 35, 50, 70)
