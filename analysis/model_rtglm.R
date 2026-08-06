@@ -10,6 +10,8 @@ library(patchwork)
 
 source("R/compute_lambda.R")
 
+dir.create("outputs/rtglm", recursive = TRUE, showWarnings = FALSE)
+
 si_distr   <- discr_si(k = 0:21, mu = 5.5, sigma = 2.1)
 si_distr   <- si_distr / sum(si_distr)
 gi_weights <- si_distr[-1]
@@ -91,7 +93,7 @@ p_rt_glm <- rt_glm |>
   theme_minimal()
 
 p_rt_glm
-
+ggsave("outputs/rtglm/rt_glm.png", p_rt_glm, width = 10, height = 4, dpi = 300, bg = "white")
 
 ## Forecast from single origin date -------
 
@@ -179,7 +181,7 @@ p_forecast_glm <- ggplot() +
   theme_minimal()
 
 p_forecast_glm
-
+ggsave("outputs/rtglm/forecast_single.png", p_forecast_glm, width = 10, height = 4, dpi = 300, bg = "white")
 
 ## Rolling-origin forecast function ---------------
 
@@ -292,3 +294,4 @@ p_rolling_glm <- ggplot() +
   theme_minimal()
 
 p_rolling_glm
+ggsave("outputs/rtglm/rolling_forecasts.png", p_rolling_glm, width = 10, height = 4, dpi = 300, bg = "white")

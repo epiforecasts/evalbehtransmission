@@ -10,6 +10,8 @@ library(patchwork)
 
 source("R/compute_lambda.R")
 
+dir.create("outputs/rtgam", recursive = TRUE, showWarnings = FALSE)
+
 # Create generation interval, normalised - CHANGE name (serial or generation?)
 si_distr   <- discr_si(k = 0:21, mu = 5.5, sigma = 2.1) # Depends on variant
 si_distr   <- si_distr / sum(si_distr)
@@ -101,6 +103,7 @@ p_rt <- rt_train |> filter(date >= min(date) + lubridate::days(6)) |>
   theme_minimal()   
 
 p_incidence / p_rt
+ggsave("outputs/rtgam/training_fit.png", p_incidence / p_rt, width = 10, height = 6, dpi = 300, bg = "white")
 
 # Compare to naive Rt estimate formula using deterministic renewal formula
 
@@ -116,6 +119,7 @@ p_rt_naive <- rt_train |> filter(date >= min(date) + lubridate::days(6)) |>
   theme_minimal()
 
 p_rt_naive
+ggsave("outputs/rtgam/rt_naive.png", p_rt_naive, width = 10, height = 4, dpi = 300, bg = "white")
 
 # Create forecast, sampling from vcov matrix
 
@@ -210,6 +214,7 @@ p_forecast <- ggplot() +
   theme_minimal()
 
 p_forecast # Low uncertainty given huge training data, and infection counts are large compared to standard deviation
+ggsave("outputs/rtgam/forecast_single.png", p_forecast, width = 10, height = 4, dpi = 300, bg = "white")
 
 
 
@@ -327,3 +332,4 @@ p_rolling <- ggplot() +
   theme_minimal()
 
 p_rolling # Very little spread, given Rt held constant and large infection counts
+ggsave("outputs/rtgam/rolling_forecasts.png", p_rolling, width = 10, height = 4, dpi = 300, bg = "white")
