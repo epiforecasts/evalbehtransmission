@@ -101,31 +101,24 @@ print_table(relative_crps |>
 
 dir.create(ch1_scoring_config$output_dir, recursive = TRUE, showWarnings = FALSE)
 
-crps_by_origin <- summarise_scores(sample_scores, by = c("model", "origin")) |>
+# Shortest and longest horizons only: CRPS grows roughly fourfold between them,
+# so averaging across horizons hides the shorter one.
+crps_by_origin <- summarise_scores(sample_scores, by = c("model", "origin", "horizon")) |>
   as_tibble() |>
-  mutate(model = factor(model, levels = names(ch1_models)))
+  filter(horizon %in% c(1, 4)) |>
+  mutate(model = factor(model, levels = names(ch1_models)),
+         horizon = factor(horizon, levels = c(1, 4),
+                          labels = c("1 week ahead", "4 weeks ahead")))
 
 fig_1_7 <- ggplot(crps_by_origin, aes(x = origin, y = crps, colour = model)) +
   geom_line(linewidth = 0.5) +
-  labs(title = "Log-CRPS over time, averaged across horizons",
+  facet_wrap(~horizon, ncol = 1, scales = "free_y") +
+  labs(title = "Log-CRPS over time, by horizon",
        x = "Forecast origin", y = "log-CRPS", colour = NULL) +
   theme_minimal() + theme(legend.position = "bottom")
 
 ggsave(file.path(ch1_scoring_config$output_dir, "fig_1_7_crps_over_time.png"),
-       fig_1_7, width = 10, height = 4.5, dpi = 300, bg = "white")
-
-fig_1_9 <- table_1_5 |>
-  select(model, horizon, overprediction, underprediction, dispersion) |>
-  tidyr::pivot_longer(-c(model, horizon), names_to = "component") |>
-  ggplot(aes(x = factor(horizon), y = value, fill = component)) +
-  geom_col() +
-  facet_wrap(~model, nrow = 1) +
-  labs(title = "CRPS decomposition by model and horizon",
-       x = "Horizon (weeks)", y = "log-CRPS", fill = NULL) +
-  theme_minimal() + theme(legend.position = "bottom")
-
-ggsave(file.path(ch1_scoring_config$output_dir, "fig_1_9_crps_decomposition.png"),
-       fig_1_9, width = 10, height = 4.5, dpi = 300, bg = "white")
+       fig_1_7, width = 10, height = 6.5, dpi = 300, bg = "white")
 
 ## Save tables -----------------------------------------------------------------
 
