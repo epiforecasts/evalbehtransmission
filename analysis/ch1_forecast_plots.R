@@ -16,7 +16,7 @@ ch1_fan_config <- list(
   probs         = c(0.05, 0.25, 0.5, 0.75, 0.95),
 
   # Single model for the rolling overlay: showing all four would stack 280 fans
-  rolling_model = "combined"
+  rolling_model = "baseline"
 )
 
 ## Load ------------------------------------------------------------------------
@@ -42,7 +42,7 @@ cat("\n--- Origins shown ---\n")
 print(as.data.frame(chosen_origins |> arrange(origin)), row.names = FALSE)
 
 ## Quantiles -------------------------------------------------------------------
-# Via scoringutils rather than hand-rolled quantiles, then pivoted for plotting.
+# Quantiles from the samples via as_forecast_quantile(), pivoted for plotting.
 
 fan <- forecasts |>
   semi_join(chosen_origins, by = c("origin", "period")) |>
@@ -51,28 +51,33 @@ fan <- forecasts |>
   as_tibble() |>
   tidyr::pivot_wider(names_from = quantile_level, values_from = predicted,
                      names_prefix = "q") |>
-  mutate(model  = factor(model, levels = names(ch1_models)),
-         period = factor(period, levels = chosen_origins$period[order(chosen_origins$origin)]),
-         target_date = origin + horizon * 7)
+  mutate(model = factor(model, levels = names(ch1_models)),
+         target_date = origin + horizon * 7,
+         # Strip label carries the origin so each panel says which forecast it is
+         panel = paste0(period, "\n", format(origin)),
+         panel = factor(panel, levels = unique(panel[order(origin)])))
 
 ## Fan plot --------------------------------------------------------------------
 
 dir.create(ch1_fan_config$output_dir, recursive = TRUE, showWarnings = FALSE)
 
-fig_1_8 <- ggplot(fan, aes(x = target_date)) +
+# Horizon rather than date on the x-axis: each panel covers the same 1-4 weeks,
+# so panels fill their space and the axis means the same thing everywhere.
+# Incidence levels differ by an order of magnitude across periods, hence free_y.
+fig_1_8 <- ggplot(fan, aes(x = horizon)) +
   geom_ribbon(aes(ymin = q0.05, ymax = q0.95, fill = model), alpha = 0.25) +
   geom_ribbon(aes(ymin = q0.25, ymax = q0.75, fill = model), alpha = 0.45) +
   geom_line(aes(y = q0.5, colour = model), linewidth = 0.6) +
-  geom_point(aes(y = observed), colour = "grey20", size = 1) +
-  # Both axes free: each panel spans only its own four target weeks, and
-  # incidence levels differ by an order of magnitude across periods.
-  facet_grid(period ~ model, scales = "free") +
+  geom_point(aes(y = observed), colour = "grey20", size = 1.2) +
+  facet_grid(panel ~ model, scales = "free_y") +
+  scale_x_continuous(breaks = 1:4) +
   labs(title = "Weekly forecasts at 1-4 weeks, by model and pandemic period",
-       subtitle = "Ribbons are 50% and 90% prediction intervals; points are observed weekly incidence",
-       x = "Target week", y = "Weekly infections") +
+       subtitle = paste("One forecast origin per period, taken from its midpoint;",
+                        "ribbons are 50% and 90% prediction intervals,",
+                        "points are observed weekly incidence"),
+       x = "Horizon (weeks ahead)", y = "Weekly infections") +
   theme_minimal() +
   theme(legend.position = "none",
-        axis.text.x = element_text(angle = 30, hjust = 1),
         strip.text.y = element_text(angle = 0))
 
 ggsave(file.path(ch1_fan_config$output_dir, "fig_1_8_forecast_fans.png"),
@@ -80,8 +85,7 @@ ggsave(file.path(ch1_fan_config$output_dir, "fig_1_8_forecast_fans.png"),
 
 ## Rolling overlay -------------------------------------------------------------
 # Every origin's fan laid along the observed series, for one model. Origins step
-# weekly so all target weeks share a boundary and the observed totals form one
-# consistent series.
+# weekly, so all target weeks fall on the same weekday.
 
 rolling_quantiles <- forecasts |>
   filter(model == ch1_fan_config$rolling_model) |>
@@ -118,7 +122,7 @@ ggsave(file.path(ch1_fan_config$output_dir, "fig_1_8_rolling_forecasts.png"),
        fig_1_8_rolling, width = 10, height = 4.5, dpi = 300, bg = "white")
 
 ## Coverage of the shown origins -----------------------------------------------
-# A quick check that the panels match the coverage reported in scoring.
+# Check if forecasts match the coverage reported in scoring.
 
 cat("\n--- Observed inside the intervals, for the origins shown ---\n")
 print(as.data.frame(fan |>

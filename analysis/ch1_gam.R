@@ -63,7 +63,7 @@ build_model_frame <- function(dat, covariates, lag = 0, gi_weights,
       t          = as.numeric(date - min(date))
     )
 
-  for (v in covariates) out[[v]] <- dplyr::lag(out[[v]], lag)
+  for (covariate in covariates) out[[covariate]] <- dplyr::lag(out[[covariate]], lag)
 
   if (!is.null(fit_from)) out <- filter(out, date >= fit_from)
   if (!is.null(fit_to))   out <- filter(out, date <= fit_to)
@@ -141,23 +141,23 @@ if (sys.nframe() == 0) {
   from <- as.Date("2020-09-01")
   to   <- as.Date("2021-01-31")
 
-  for (v in names(ch1_models)) {
-    m <- fit_renewal_gam(dat, covariates = ch1_models[[v]],
-                         fit_from = from, fit_to = to)
+  for (model_name in names(ch1_models)) {
+    fitted_model <- fit_renewal_gam(dat, covariates = ch1_models[[model_name]],
+                                    fit_from = from, fit_to = to)
 
-    cat("\n---", v, "---\n")
-    cat(deparse1(m$formula), "\n")
-    cat("n =", m$n_obs,
-        "| deviance explained =", round(100 * m$dev_expl, 2), "%",
-        "| Rt range:", round(range(m$fitted_rt$Rt), 2), "\n")
-    print(as.data.frame(m$coefficients |>
+    cat("\n---", model_name, "---\n")
+    cat(deparse1(fitted_model$formula), "\n")
+    cat("n =", fitted_model$n_obs,
+        "| deviance explained =", round(100 * fitted_model$dev_expl, 2), "%",
+        "| Rt range:", round(range(fitted_model$fitted_rt$Rt), 2), "\n")
+    print(as.data.frame(fitted_model$coefficients |>
             mutate(across(where(is.numeric), \(x) round(x, 3)))),
           row.names = FALSE)
   }
 
-  m_smooth <- fit_renewal_gam(dat, ch1_models$combined, use_smooth = TRUE,
+  smooth_fit <- fit_renewal_gam(dat, ch1_models$combined, use_smooth = TRUE,
                               fit_from = from, fit_to = to)
   cat("\n--- combined + s(t) ---\n")
-  cat(deparse1(m_smooth$formula), "\n")
-  cat("deviance explained =", round(100 * m_smooth$dev_expl, 2), "%\n")
+  cat(deparse1(smooth_fit$formula), "\n")
+  cat("deviance explained =", round(100 * smooth_fit$dev_expl, 2), "%\n")
 }

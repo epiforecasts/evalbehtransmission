@@ -15,6 +15,9 @@ ch1_rolling_config <- list(
   last_origin   = as.Date("2021-10-31"),
   horizon_weeks = 4,
   n_sim         = 200,
+
+  # Forecasts are simulated, so fix the seed to make a run reproducible
+  seed          = 42,
   family        = ch1_family,
 
   # Far smaller than the full-period fit: k = 20 over an 84-day window is close
@@ -34,9 +37,9 @@ ch1_rolling_config <- list(
 
 project_covariates <- function(model_data, covariates) {
   origin_row <- tail(model_data, 1)
-  out <- data.frame(log_Lambda = 0, t = origin_row$t)
-  for (covariate in covariates) out[[covariate]] <- origin_row[[covariate]]
-  out
+  newdata <- data.frame(log_Lambda = 0, t = origin_row$t)
+  for (covariate in covariates) newdata[[covariate]] <- origin_row[[covariate]]
+  newdata
 }
 
 ## Forecast one window ---------------------------------------------------------
@@ -97,8 +100,8 @@ run_window <- function(dat, origin, config = ch1_rolling_config,
                                   config = window_config)
     )
 
-    coefficients <- bind_rows(lapply(names(fits), function(s) {
-      fits[[s]]$coefficients |> mutate(used_smooth = s == "smooth")
+    coefficients <- bind_rows(lapply(names(fits), function(smooth_setting) {
+      fits[[smooth_setting]]$coefficients |> mutate(used_smooth = smooth_setting == "smooth")
     })) |> mutate(origin = origin, model = model_name)
 
     deviance <- tibble(
@@ -132,6 +135,8 @@ dat <- read_csv(ch1_gam_config$input_path, show_col_types = FALSE)
 
 origins <- seq(ch1_rolling_config$first_origin, ch1_rolling_config$last_origin,
                by = ch1_rolling_config$step_days)
+
+set.seed(ch1_rolling_config$seed)
 
 message("Running ", length(origins), " origins x ", length(ch1_models), " models")
 

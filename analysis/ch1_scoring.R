@@ -67,7 +67,7 @@ table_1_5 <- summarise_scores(sample_scores, by = c("model", "horizon")) |>
   mutate(model = factor(model, levels = names(ch1_models))) |>
   arrange(model, horizon)
 
-cat("\n--- Table 1.5: log-CRPS by model and horizon ---\n")
+cat("\n--- Table 1.5: log-CRPS by model and horizon, averaged over all origins ---\n")
 print_table(table_1_5)
 
 ## Table 1.6: model x period ---------------------------------------------------
@@ -80,7 +80,7 @@ table_1_6 <- summarise_scores(sample_scores, by = c("model", "period")) |>
   mutate(model = factor(model, levels = names(ch1_models))) |>
   arrange(period, model)
 
-cat("\n--- Table 1.6: log-CRPS by model and period ---\n")
+cat("\n--- Table 1.6: log-CRPS by model and period, averaged over that period's origins ---\n")
 print_table(table_1_6)
 
 ## Relative to the incidence-only baseline -------------------------------------
