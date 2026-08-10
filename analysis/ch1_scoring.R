@@ -1,6 +1,6 @@
-# Chapter 1, issue #45: score the rolling-origin forecasts with {scoringutils}.
-# CRPS and its over/under/dispersion decomposition come from the sample
-# forecasts; interval coverage from the same forecasts as quantiles.
+# Chapter 1, issue #45: score the rolling-origin forecasts with {scoringutils}
+# CRPS and its over/under/dispersion decomposition come from the sample forecasts
+# Interval coverage comes from the same forecasts, converted to quantiles
 
 source("analysis/ch1_gam.R")
 
@@ -14,7 +14,7 @@ ch1_scoring_config <- list(
   periods_path  = "data-processed/ch1_periods.csv",
   output_dir    = "outputs/ch1",
 
-  # Offset added before logging so zero counts stay defined
+  # Ensures log transforms are well-defined
   log_offset    = 1,
 
   # Quantiles needed for the 50% and 90% interval coverage metrics
@@ -28,40 +28,52 @@ print_table <- function(x, digits = 3) {
 
 ## Load ------------------------------------------------------------------------
 # Periods join on origin, so a forecast is labelled by the regime it was made in
-# rather than the one it lands in.
+# This follows epiforecasts/CovidAgeGroupForecast, which also cuts on forecast_date
 
 periods <- read_csv(ch1_scoring_config$periods_path, show_col_types = FALSE) |>
   select(origin = date, period)
 
+# Place in chronological order to avoid sorting alphabetically
+period_levels <- periods |> arrange(origin) |> distinct(period) |> pull(period)
+ 
 forecasts <- read_csv(ch1_scoring_config$forecast_path, show_col_types = FALSE) |>
   left_join(periods, by = "origin")
 
 forecast_unit <- c("model", "horizon", "origin", "period")
 
 ## Score -----------------------------------------------------------------------
-# Log transform before scoring so low- and high-incidence periods contribute
-# comparably, rather than peaks dominating.
+# Log transform before scoring so low- and high-incidence periods contribute comparably
+# Otherwise CRPS scales with incidence and peaks dominate the average
 
-fc_log <- forecasts |>
+# Appending keeps the natural scale alongside the log scale, in a scale column
+forecasts_both_scales <- forecasts |>
   as_forecast_sample(forecast_unit = forecast_unit) |>
-  transform_forecasts(fun = log_shift, offset = ch1_scoring_config$log_offset,
-                      append = FALSE)
+  transform_forecasts(fun = log_shift, offset = ch1_scoring_config$log_offset)
 
-sample_scores <- score(fc_log)
+all_scores <- score(forecasts_both_scales)
+log_scores <- all_scores[all_scores$scale == "log", ]
 
-coverage_scores <- fc_log |>
+# Interval coverage is invariant to monotone transforms, so the log scale gives the same values
+coverage_scores <- forecasts_both_scales[forecasts_both_scales$scale == "log", ] |>
   as_forecast_quantile(probs = ch1_scoring_config$probs) |>
   score()
 
 ## Table 1.5: model x horizon --------------------------------------------------
 
-table_1_5 <- summarise_scores(sample_scores, by = c("model", "horizon")) |>
+table_1_5 <- summarise_scores(log_scores, by = c("model", "horizon")) |>
   as_tibble() |>
   select(model, horizon, crps, overprediction, underprediction, dispersion, bias) |>
   left_join(
     summarise_scores(coverage_scores, by = c("model", "horizon")) |>
       as_tibble() |>
       select(model, horizon, interval_coverage_50, interval_coverage_90),
+    by = c("model", "horizon")
+  ) |>
+  left_join(
+    # Standard deviation of CRPS across origins
+    summarise_scores(log_scores, by = c("model", "horizon"), fun = sd) |>
+      as_tibble() |>
+      select(model, horizon, crps_sd = crps),
     by = c("model", "horizon")
   ) |>
   mutate(model = factor(model, levels = names(ch1_models))) |>
@@ -72,38 +84,42 @@ print_table(table_1_5)
 
 ## Table 1.6: model x period ---------------------------------------------------
 
-table_1_6 <- summarise_scores(sample_scores, by = c("model", "period")) |>
+table_1_6 <- summarise_scores(log_scores, by = c("model", "period")) |>
   as_tibble() |>
   select(model, period, crps, overprediction, underprediction, dispersion, bias) |>
   left_join(forecasts |> distinct(origin, period) |> count(period, name = "n_origins"),
             by = "period") |>
-  mutate(model = factor(model, levels = names(ch1_models))) |>
+  mutate(model = factor(model, levels = names(ch1_models)),
+         period = factor(period, levels = period_levels)) |> # Arrange chronologically, not alphabetically
   arrange(period, model)
 
 cat("\n--- Table 1.6: log-CRPS by model and period, averaged over that period's origins ---\n")
 print_table(table_1_6)
 
 ## Relative to the incidence-only baseline -------------------------------------
+# scoringutils pairs each model against the baseline on shared forecasts
+# adj_pval comes from a permutation test, adjusted for multiple comparisons
+# It tests whether the difference in score between two models is statistically significant
 
-relative_crps <- table_1_5 |>
-  select(model, horizon, crps) |>
-  group_by(horizon) |>
-  mutate(rel_crps = crps / crps[model == "baseline"]) |>
-  ungroup()
+relative_crps <- get_pairwise_comparisons(log_scores, compare = "model",
+                                          by = "horizon", metric = "crps",
+                                          baseline = "baseline") |>
+  as_tibble() |>
+  filter(compare_against == "baseline", model != "baseline") |>
+  select(model, horizon, mean_scores_ratio, adj_pval) |>
+  mutate(model = factor(model, levels = names(ch1_models))) |>
+  arrange(model, horizon)
 
 cat("\n--- CRPS relative to baseline (< 1 is better) ---\n")
-print_table(relative_crps |>
-  select(model, horizon, rel_crps) |>
-  tidyr::pivot_wider(names_from = horizon, values_from = rel_crps,
-                     names_prefix = "wk_"))
+print_table(relative_crps)
 
 ## Figures ---------------------------------------------------------------------
 
 dir.create(ch1_scoring_config$output_dir, recursive = TRUE, showWarnings = FALSE)
 
-# Shortest and longest horizons only: CRPS grows roughly fourfold between them,
-# so averaging across horizons hides the shorter one.
-crps_by_origin <- summarise_scores(sample_scores, by = c("model", "origin", "horizon")) |>
+# Shortest and longest horizons only, as CRPS grows roughly fourfold between them
+# Averaging across all four would hide the 1-week horizon
+crps_by_origin <- summarise_scores(log_scores, by = c("model", "origin", "horizon")) |>
   as_tibble() |>
   filter(horizon %in% c(1, 4)) |>
   mutate(model = factor(model, levels = names(ch1_models)),

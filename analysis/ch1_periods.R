@@ -5,6 +5,9 @@ library(dplyr)
 library(readr)
 library(ggplot2)
 
+# I've switched to 'compact', not 'simplified' version of OxCGRT
+# This gives targeted vs national flag, whereas Stringency Index alone reflects the most stringent application
+
 ## Config ----------------------------------------------------------------------
 
 ch1_period_config <- list(
@@ -17,17 +20,16 @@ ch1_period_config <- list(
   plot_dir    = "outputs/ch1"
 )
 
-# Named policy regimes, set a priori and dated against OxCGRT indicator changes.
-# C1 (school closing) and C6 (stay-at-home) are two of eight containment
-# indicators, kept as illustrative. 2021-07-19 is roadmap step 4, where both had
-# already bottomed out, so that boundary is the policy date alone.
+# Named policy regimes based on relevant policies in place
+# C1 (school closing) and C6 (stay-at-home) are two of eight containment indicators
+# Used illustratively. Restrictions largely ended after 19/07/2021 until Omicron plans
 period_starts <- tibble::tribble(
   ~start,                    ~period,
   as.Date("2020-04-01"),     "Lockdown 1",
   as.Date("2020-05-13"),     "Summer relaxation",
   as.Date("2020-10-12"),     "Autumn tiers",
   as.Date("2020-11-05"),     "Lockdown 2",
-  as.Date("2020-12-03"),     "Winter tiers",
+  as.Date("2020-12-03"),     "Winter tiers", # C6 dropped to 1 on 3/12, despite winter tiers announced 2/12
   as.Date("2021-01-05"),     "Lockdown 3",
   as.Date("2021-03-08"),     "Staged reopening",
   as.Date("2021-07-19"),     "Post-restrictions"
@@ -36,7 +38,7 @@ period_starts <- tibble::tribble(
 ## Load ------------------------------------------------------------------------
 
 load_oxcgrt_england <- function(config = ch1_period_config) {
-  read_csv(config$oxcgrt_path, show_col_types = FALSE, guess_max = 1000) |>
+  read_csv(config$oxcgrt_path, show_col_types = FALSE) |>
     filter(RegionCode == "UK_ENG") |>
     mutate(date = as.Date(as.character(Date), "%Y%m%d")) |>
     # Simplified file:
@@ -58,18 +60,20 @@ load_oxcgrt_england <- function(config = ch1_period_config) {
 
 ## Assign periods --------------------------------------------------------------
 
+# Splits the full study period into bins, with 'period' label for the relevant OxCGRT period
 assign_periods <- function(dat, starts = period_starts) {
   dat |>
     mutate(
       period = cut(date,
-                   breaks = c(starts$start, max(date) + 1),
+                   breaks = c(starts$start, max(date) + 1), # Add a 1-day buffer to cover the final window
                    labels = starts$period,
-                   right  = FALSE) |> as.character()
-    )
+                   right  = FALSE)) # Give left-closed intervals, as periods use start date
 }
 
 ## Checks ----------------------------------------------------------------------
 
+# For each period, report the start and end dates, including duration and mean stringency
+# Gives idea of how many forecasts originate in each period too
 report_periods <- function(dat) {
   cat("Rows:", nrow(dat), "| unlabelled dates:", sum(is.na(dat$period)), "\n\n")
 
@@ -78,7 +82,7 @@ report_periods <- function(dat) {
     summarise(start = min(date), end = max(date), days = n(),
               mean_stringency = round(mean(stringency), 1),
               .groups = "drop") |>
-    arrange(start)
+    arrange(start) # Undo the alphabetical grouping
 
   print(as.data.frame(out), row.names = FALSE)
   invisible(out)
@@ -89,6 +93,7 @@ report_periods <- function(dat) {
 plot_stringency <- function(dat, config = ch1_period_config) {
   dir.create(config$plot_dir, recursive = TRUE, showWarnings = FALSE)
 
+  # Create rectangles for each period alongside the Stringency line plot
   bands <- dat |>
     group_by(period) |>
     summarise(start = min(date), end = max(date), .groups = "drop")

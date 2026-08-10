@@ -6,27 +6,29 @@ library(tidyr)
 library(ggplot2)
 library(patchwork)
 
+source("R/ch1_mobility_streams.R") # Stream selection moved here for common source across data/covariate/model scripts
+
 ## Config ----------------------------------------------------------------------
 
 ch1_cov_config <- list(
-  contact_covariate = "eigenvalue",   # or "mean_contacts"
+  
+  contact_covariate = "eigenvalue",   # or "mean_contacts" when made using CoMix
 
-  # Equal-weighted composite; parks and residential excluded
-  mobility_streams = c("retail_recreation", "grocery_pharmacy",
-                       "transit", "workplaces"),
-
-  # Trailing window: t-6..t, so no future information at the forecast origin
+  # Smooth over a 7-day window (as per Davies et al.)
+  # Use trailing window: t-6 to t so no future information used at forecast origin
   smooth_window = 7,
 
-  lag = 0,
+  # Covariates are left unlagged here, with model lags set in ch1_gam.R
 
   input_path  = "data-processed/ch1_data.csv",
   output_path = "data-processed/ch1_covariates.csv",
   plot_dir    = "outputs/ch1"
 )
 
+
 ## Transformations -------------------------------------------------------------
 
+# Allows switching between using eigenvalue or raw mean contacts (I plan to make this switch)
 select_contact_covariate <- function(dat, which) {
   switch(which,
     eigenvalue    = dat$comix_eigen,
@@ -35,38 +37,45 @@ select_contact_covariate <- function(dat, which) {
   )
 }
 
-# Trailing mean over t-k+1..t. sides = 1 uses only current and past values, so
-# no future information enters at the forecast origin. Any 7 consecutive days
-# contains each weekday once, so a 7-day window removes day-of-week exactly.
-# Note dplyr masks stats::filter, hence the explicit namespace.
+# Take the trailing mean over a window of length k i.e. mean over t-k+1 to t
+# sides = 1 looks at past values, rather than centering on today
+# Any 7 days contain each weekday once, so 7-day avg removes day-of-week effect exactly
+# dplyr masks stats::filter if package not specified
 trailing_mean <- function(x, k) {
   as.numeric(stats::filter(x, rep(1 / k, k), sides = 1))
 }
 
+# z-score over entire study period
+# Uses full-period mean and sd, but a global affine rescale is only a reparameterisation to the GAM
+# This gives no leakage into fitted values or forecasts
+# Global keeps beta comparable across windows, and avoids huge skew during stable periods
 zscore <- function(x) (x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE)
-
-apply_lag <- function(x, l) if (l == 0) x else dplyr::lag(x, l)
 
 ## Build -----------------------------------------------------------------------
 
 build_covariates <- function(config = ch1_cov_config) {
   dat <- read_csv(config$input_path, show_col_types = FALSE)
 
-  # Averaging and smoothing are both linear, so combining first is equivalent
-  # to smoothing each stream separately.
-  composite <- rowMeans(dat[, config$mobility_streams])
+  # Average the mobility streams before smoothing, with equal weighting (Davies et al. has simplex alternative with weights)
+  # Both transformations are linear, so this is equivalent to smoothing then averaging, just tidier 
+  # Each stream has different variance, so averaging then z-scoring != z-scoring then averaging. Nouvellet does not consider this.
+  
+  # Equal-weighted composite; no worse than individual streams (Nouvellet et al. 2021, at least for early 2020)
+  composite <- rowMeans(dat[, mobility_retained], na.rm = TRUE)
+  composite[!is.finite(composite)] <- NA
 
   dat |>
     transmute(
       date,
       incidence,
+      # contacts_raw holds rho(C) from CoMix, not raw contact counts
       contacts_raw    = select_contact_covariate(dat, config$contact_covariate),
       mobility_raw    = composite,
       mobility_smooth = trailing_mean(composite, config$smooth_window)
     ) |>
     mutate(
-      contacts = apply_lag(zscore(contacts_raw), config$lag),
-      mobility = apply_lag(zscore(mobility_smooth), config$lag)
+      contacts = zscore(contacts_raw),
+      mobility = zscore(mobility_smooth)
     )
 }
 
@@ -89,7 +98,7 @@ plot_covariates <- function(cov, config = ch1_cov_config) {
          x = NULL, y = expression(rho(C))) +
     theme_minimal()
 
-  p_z <- cov |>
+  p_zscored <- cov |>
     select(date, contacts, mobility) |>
     pivot_longer(-date, names_to = "covariate") |>
     ggplot(aes(x = date, y = value, colour = covariate)) +
@@ -99,7 +108,7 @@ plot_covariates <- function(cov, config = ch1_cov_config) {
     theme_minimal() +
     theme(legend.position = "bottom")
 
-  combined <- p_mobility / p_contacts / p_z
+  combined <- p_mobility / p_contacts / p_zscored
   ggsave(file.path(config$plot_dir, "covariates.png"), combined,
          width = 10, height = 9, dpi = 300, bg = "white")
 

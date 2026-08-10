@@ -83,6 +83,9 @@ compute_wave_matrices <- function(data_list, age_limits, survey_pop) {
     
     # Calculate median contact date for this wave
     dates <- as.Date(p_wave$sday_id, format = "%Y.%m.%d")
+    
+    # Contacts are reported for the previous day, so subtract 1 to get the contact date
+    # Median taken over participants. Spacing ends up irregular and some waves drop out
     wave_date <- median(dates, na.rm = TRUE) - 1
     
     # Build local survey object and clean (parses part_age string bands into numeric)
