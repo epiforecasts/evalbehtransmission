@@ -204,12 +204,17 @@ cat("\norigins run:", length(windows),
     "| deviance rows:", nrow(window_deviance),
     "| forecast rows:", nrow(forecasts), "\n")
 
+# Averaged over windows, so baseline against a covariate model with and without s(t)
+# dev_expl_increment is dropped here, as baseline explains nothing without s(t) and the
+# increment then equals the model's own deviance explained
 deviance_summary <- window_deviance |>
-  filter(!used_smooth) |>
-  group_by(model) |>
-  summarise(mean_dev_expl  = round(100 * mean(dev_expl), 1),
-            mean_increment = round(100 * mean(dev_expl_increment), 1),
-            .groups = "drop")
+  group_by(model, used_smooth) |>
+  summarise(mean_dev_expl = round(100 * mean(dev_expl), 1), .groups = "drop") |>
+  tidyr::pivot_wider(names_from = used_smooth, values_from = mean_dev_expl,
+                     names_prefix = "smooth_") |>
+  rename(no_smooth = smooth_FALSE, with_smooth = smooth_TRUE) |>
+  mutate(model = factor(model, levels = names(ch1_models))) |>
+  arrange(model)
 
-cat("\nMean deviance explained by model (no smooth):\n")
+cat("\nMean deviance explained by model, with and without s(t):\n")
 print(as.data.frame(deviance_summary), row.names = FALSE)
