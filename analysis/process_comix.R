@@ -1,6 +1,5 @@
-# Reads the CoMix social contact survey from Zenodo, or from data-raw/CoMix/ if the
-# record has already been downloaded there, and writes two
-# contact series to data-processed/, both used as covariates in Chapter 1:
+# Reads the CoMix social contact survey from Zenodo, or from data-raw/CoMix/, and writes
+# two contact series to data-processed/, both used as covariates in Chapter 1:
 #   - the dominant eigenvalue of the age-stratified contact matrix, per survey round
 #   - mean contacts per participant per day, as a daily trailing mean
 #
@@ -20,12 +19,17 @@ data_dir <- "data-raw/CoMix"
 eigenvalues_path <- "data-processed/comix_eigenvalues.csv"
 mean_contacts_path <- "data-processed/comix_mean_contacts.csv"
 
-# Version DOI, not the concept DOI 10.5281/zenodo.4905745, so a later Zenodo release
-# cannot move the series underneath the chapter
-comix_doi <- "https://doi.org/10.5281/zenodo.13684044"
+# A pinned version, so a later Zenodo release cannot move the series
+comix_record_url <- "https://zenodo.org/records/13684044/files"
 
 # FALSE reads CoMix from data_dir and inc2prev from a local clone, matching ch1_data.R
 use_remote <- TRUE
+
+# Read file by file rather than through socialmixr::get_survey(), which joins each extra
+# file on every shared column name, so sday and hh_common collide on their row number X
+comix_path <- function(file, use_remote) {
+  if (use_remote) paste(comix_record_url, file, sep = "/") else file.path(data_dir, file)
+}
 
 # Ages are sampled within their reported band, so fix the seed to make a run reproducible
 seed <- 42
@@ -39,8 +43,7 @@ contact_window_days <- 14
 
 # Children join from May 2020 and their share of respondents then swings, so a plain
 # sample mean moves with recruitment rather than behaviour
-# Ages are reported as bands, so the upper end of the band decides the split
-child_age_max <- 17
+child_age_bands <- c("Under 1", "0-4", "5-11", "12-17")
 
 # UK under-18 share in 2020, from the UN WPP 2017 median projection
 # https://cran.r-project.org/package=wpp2017
@@ -68,22 +71,24 @@ load_merge_comix <- function(use_remote) {
 
   message("Loading CoMix data...")
 
-  # Both readers join sday and participant_extra onto the participant table by part_id,
-  # and parse the reported age band into part_age_est_min and part_age_est_max
+  # The contact file is about 100 MB, too slow for R's 60 second download timeout
+  if (use_remote) options(timeout = max(600, getOption("timeout")))
+
+  participants_raw <- fread(comix_path("CoMix_uk_participant_common.csv", use_remote))
+  contacts_raw     <- fread(comix_path("CoMix_uk_contact_common.csv", use_remote))
+  sday_raw         <- fread(comix_path("CoMix_uk_sday.csv", use_remote))
+  extra_raw        <- fread(comix_path("CoMix_uk_participant_extra.csv", use_remote))
+
   # sday_id dates each response, being the day the survey was filled in
   # survey_round groups responses for the matrices below, taking its date from sday_id
   # wave is the panel's nth round, carrying no date, so it is never used
-  # Both warn that the household file cannot be matched row for row, which is expected
-  # and leaves the participant table unchanged
-  comix <- if (use_remote) {
-    socialmixr::get_survey(comix_doi)
-  } else {
-    socialmixr::load_survey(list.files(data_dir, pattern = "\\.csv$", full.names = TRUE))
-  }
+  participants_raw <- participants_raw |>
+    merge(sday_raw[, .(part_id, sday_id, dayofweek)], by = "part_id", all.x = TRUE) |>
+    merge(extra_raw[, .(part_id, survey_round)], by = "part_id", all.x = TRUE)
 
-  participants <- as.data.table(comix$participants)[!is.na(survey_round)]
+  participants_raw <- participants_raw[!is.na(survey_round)]
 
-  list(participants = participants, contacts = as.data.table(comix$contacts))
+  list(participants = participants_raw, contacts = contacts_raw)
 }
 
 ## Contact matrices by survey round ---------------------------------------------
@@ -114,7 +119,7 @@ compute_round_matrices <- function(data_list, age_limits, survey_pop) {
     round_participants <- copy(round_participants)[
       , dayofweek := as.POSIXlt(response_dates - 1)$wday]
 
-    # Build a survey object for this round alone, cleaned so contact_matrix accepts it
+    # Build local survey object and clean (parses part_age string bands into numeric)
     round_survey <- socialmixr::clean(socialmixr::survey(
       participants = as.data.frame(round_participants),
       contacts     = as.data.frame(round_contacts)
@@ -163,7 +168,7 @@ compute_mean_contacts <- function(data_list, window_length = contact_window_days
   # Contacts are reported for the previous day, as in the wave dates above
   responses <- data.table(
     part_id      = data_list$participants$part_id,
-    part_age_max = data_list$participants$part_age_est_max,
+    part_age     = data_list$participants$part_age,
     contact_date = as.Date(data_list$participants$sday_id, format = "%Y.%m.%d") - 1
   )[!is.na(contact_date)]
 
@@ -171,8 +176,7 @@ compute_mean_contacts <- function(data_list, window_length = contact_window_days
   counts <- data_list$contacts[, .(n_contacts = pmin(.N, cap)), by = part_id]
   responses <- merge(responses, counts, by = "part_id", all.x = TRUE)
   responses[is.na(n_contacts), n_contacts := 0]
-  # An unreported age counts as an adult, so it never inflates the child mean
-  responses[, is_adult := is.na(part_age_max) | part_age_max > child_age_max]
+  responses[, is_adult := !part_age %in% child_age_bands]
 
   days <- seq(min(responses$contact_date), max(responses$contact_date), by = "day")
 

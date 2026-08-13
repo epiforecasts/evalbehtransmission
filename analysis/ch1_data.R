@@ -11,7 +11,7 @@ source("R/ch1_mobility_streams.R") # Source Mobility streams used - unified sour
 ## Config ----------------------------------------------------------------------
 
 ch1_data_config <- list(
-  study_start   = as.Date("2020-04-01"), # inc2prev start until Omicron period
+  study_start   = as.Date("2020-04-01"), # Study window start, a little before the first inc2prev estimate
   study_end     = as.Date("2021-01-27"), # Last observation scored, being 4 weeks past the final origin
   use_remote    = TRUE,   # FALSE reads inc2prev from data-raw/inc2prev-main/ - requires local copy
   contacts_path = "data-processed/comix_eigenvalues.csv", # Step-wise raw contact matrix eigenvalues from process_comix.R
@@ -56,11 +56,11 @@ load_mobility <- function() {
 
 ## Weekly to daily -------------------------------------------------------------
 
-# Convert daily series to weekly, carrying last observed value forwards
+# Convert a per-round series to daily, carrying the last observed value forwards
 # Results in step-wise constant time series, avoiding leaking future information not available
 expand_to_daily <- function(weekly, value_col, dates) {
   tibble(date = dates) |> # Create daily series
-    left_join(weekly, by = "date") |> # Anchor each CoMix survey round to it's date in the daily series
+    left_join(weekly, by = "date") |> # Anchor each CoMix survey round to its date in the daily series
     arrange(date) |>
     fill(all_of(value_col), .direction = "down") # Carry each value forwards until it hits the next wave - gives NAs until first CoMix wave
 }
@@ -97,7 +97,7 @@ report_coverage <- function(dat) {
   )
   print(as.data.frame(out), row.names = FALSE)
 
-  # Print the first fortnight of non-zero CoMix eigenvalues to illustrate stepwise processing
+  # Print the first fortnight of observed CoMix eigenvalues to illustrate stepwise processing
   first <- which(!is.na(dat$comix_eigen))[1]
   cat("\nContacts held constant between waves:\n")
   print(as.data.frame(dat[first:(first + 13), c("date", "comix_eigen")]), row.names = FALSE)

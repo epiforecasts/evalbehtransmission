@@ -100,8 +100,9 @@ renewal_formula <- function(covariates, use_smooth = FALSE, k) {
   reformulate(c("1", smooth, covariates, "offset(log_Lambda)"), response = "incidence")
 }
 
-# CAVEAT: covariates have different ranges in each window, given global z-scoring
-# Cannot compare intercepts exactly equally across all windows as they extrapolate different severities
+# CAVEAT: z-scoring is global, so zero is the study-period average, not each window's average
+# The intercept is log(Rt) at zero, which most windows never reach, so each one extrapolates
+# a different distance and intercepts are not directly comparable across windows
 
 ## Fit -------------------------------------------------------------------------
 

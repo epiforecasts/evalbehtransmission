@@ -22,11 +22,12 @@ ch1_diag_config <- list(
   last_origin  = as.Date("2021-01-01")
 )
 
-# Chosen from the family comparison below, and used for everything after it.
-chosen_family <- "nb"   # ch1_family in ch1_gam.R must match
+# Chosen from the family comparison below, and used for everything after it
+# Only a label for the comparison list, as the family itself is ch1_family from ch1_gam.R
+chosen_family <- "nb"
 
 make_family <- function(family_name) {
-  if (family_name == "poisson") poisson(link = "log") else nb()
+  if (family_name == "poisson") poisson(link = "log") else ch1_family()
 }
 
 # Prints numeric columns rounded, 3dp unless overridden
@@ -83,7 +84,7 @@ print_table(family_comparison, 4)
 covariate_estimates_by_family <- lapply(names(fits), function(family_name) {
   lapply(names(ch1_models), function(model_name) {
     fits[[family_name]][[model_name]]$coefficients |>
-      filter(term != "(Intercept)") |> # Removes baseline model, as only interested in coefficients
+      filter(term != "(Intercept)") |> # Keeps covariate slopes only, so the baseline model drops out
       mutate(model = model_name, family = family_name)
   }) |> bind_rows()
 }) |> bind_rows() |>
@@ -127,8 +128,8 @@ residuals_table <- lapply(names(ch1_models), function(model_name) {
          period = factor(period, levels = period_levels))
 
 # Residuals are grouped by period after fitting, rather than models being fit per period (which biases results)
-# Covariates in this pooled fit help in some periods, improving Lockdown 3 from -0.94 to 0.52 while Winter tiers worsens
-# n is reported as periods differ in length, and Lockdown 1 only covers 8 days here
+# Covariates in this pooled fit help in some periods, improving Lockdown 3 from -0.94 to 0.55 while Winter tiers worsens
+# n is reported as periods differ in length, and Lockdown 1 only covers 10 days here
 residuals_by_period <- residuals_table |>
   group_by(period, model) |>
   summarise(mean_resid = mean(residual), .groups = "drop") |>
@@ -143,7 +144,7 @@ print_table(residuals_by_period, 2)
 # Correlated residuals break the independence assumption behind the SEs
 # If adding covariates reduce autocorrelation, they may capture structural/temporal variation beyond the baseline model
 # No day-of-week spike expected at lag 7, as the mobility and incidence series are both smoothed
-# Contacts cut lag-14 from 0.48 to 0.23, so covariates absorb some of the temporal structure
+# Contacts cut lag-14 from 0.48 to 0.15, so covariates absorb some of the temporal structure
 
 # acf() assumes evenly spaced observations, and rows with missing covariates are dropped
 # Confirm each model frame is contiguous before reading anything into the lags

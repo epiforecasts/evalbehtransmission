@@ -209,7 +209,7 @@ cat("\norigins run:", length(windows),
 
 # Averaged over windows, so baseline against a covariate model with and without s(t)
 # dev_expl_increment is dropped here, as baseline explains nothing without s(t) and the
-# increment then equals the bchwmodel's own deviance explained
+# increment then equals the model's own deviance explained
 deviance_summary <- window_deviance |>
   group_by(model, used_smooth) |>
   summarise(mean_dev_expl = round(100 * mean(dev_expl), 1), .groups = "drop") |>
