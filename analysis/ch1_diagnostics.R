@@ -15,7 +15,11 @@ ch1_diag_config <- list(
   smooth_k     = c(5, 10, 20, 40), # Test how readily a spline term will just absorb everything
 
   # Matches window_weeks in ch1_rolling.R, for the window-level checks below
-  window_weeks = 12
+  window_weeks = 8,
+
+  # Matches the rolling origin range, so the window checks cover the same span
+  first_origin = as.Date("2020-07-01"),
+  last_origin  = as.Date("2021-01-01")
 )
 
 # Chosen from the family comparison below, and used for everything after it.
@@ -60,8 +64,7 @@ dispersion <- function(fitted_model) {
 
 # Poisson dispersion far above 1 shows its variance assumption is much too tight
 # NB lands near 1 by construction, as theta is fitted, so the Poisson value carries the evidence
-cat("\n--- Baseline under each family ---\n")
-print_table(tibble(
+family_comparison <- tibble(
   family     = c("poisson", "nb"),
   dispersion = c(dispersion(fits$poisson$baseline), dispersion(fits$nb$baseline)),
   aic        = c(AIC(fits$poisson$baseline$fit), AIC(fits$nb$baseline$fit)),
@@ -69,13 +72,15 @@ print_table(tibble(
                  fits$nb$baseline$coefficients$estimate),
   se         = c(fits$poisson$baseline$coefficients$se,
                  fits$nb$baseline$coefficients$se)
-), 4)
+)
+
+cat("\n--- Baseline under each family ---\n")
+print_table(family_comparison, 4)
 
 # Poisson gives incredibly confident coefficient estimates compared to NB
 # This implies forecasts under a Poisson specification will be very narrow
 # Generally, intercept absorbs some of the level of transmission when contacts/mobility aren't at their average
-cat("\n--- Covariate estimates and SEs by family ---\n")
-print_table(lapply(names(fits), function(family_name) {
+covariate_estimates_by_family <- lapply(names(fits), function(family_name) {
   lapply(names(ch1_models), function(model_name) {
     fits[[family_name]][[model_name]]$coefficients |>
       filter(term != "(Intercept)") |> # Removes baseline model, as only interested in coefficients
@@ -84,12 +89,15 @@ print_table(lapply(names(fits), function(family_name) {
 }) |> bind_rows() |>
   select(model, term, family, estimate, se) |>
   tidyr::pivot_wider(names_from = family, values_from = c(estimate, se)) |>
-  mutate(se_ratio = se_nb / se_poisson), 4)
+  mutate(se_ratio = se_nb / se_poisson)
+
+cat("\n--- Covariate estimates and SEs by family ---\n")
+print_table(covariate_estimates_by_family, 4)
 
 # The fits above span the whole period, so they absorb non-stationarity the models never see
-# Repeat on non-overlapping 12-week windows, reflecting the model training window
-# Poisson dispersion stays between 45 and 2470, so it is not an artefact of the longer fit
-window_origins <- seq(as.Date("2020-07-01"), as.Date("2021-10-31"),
+# Repeat on non-overlapping windows, reflecting the model training window
+# Poisson dispersion stays between 36 and 1754, so it is not an artefact of the longer fit
+window_origins <- seq(ch1_diag_config$first_origin, ch1_diag_config$last_origin,
                       by = ch1_diag_config$window_weeks * 7)
 
 window_dispersion <- lapply(window_origins, function(origin) {
@@ -103,7 +111,7 @@ window_dispersion <- lapply(window_origins, function(origin) {
          nb      = dispersion(window_fits$nb))
 }) |> bind_rows()
 
-cat("\n--- Baseline dispersion on non-overlapping 12-week windows ---\n")
+cat("\n--- Baseline dispersion on non-overlapping training windows ---\n")
 print_table(window_dispersion, 2)
 
 ## Residuals by period ---------------------------------------------------------
@@ -119,20 +127,23 @@ residuals_table <- lapply(names(ch1_models), function(model_name) {
          period = factor(period, levels = period_levels))
 
 # Residuals are grouped by period after fitting, rather than models being fit per period (which biases results)
-# Covariates in this pooled fit help in some periods, improving Lockdown 3 from -1.11 to -0.23 while Winter tiers worsens
+# Covariates in this pooled fit help in some periods, improving Lockdown 3 from -0.94 to 0.52 while Winter tiers worsens
 # n is reported as periods differ in length, and Lockdown 1 only covers 8 days here
+residuals_by_period <- residuals_table |>
+  group_by(period, model) |>
+  summarise(mean_resid = mean(residual), .groups = "drop") |>
+  tidyr::pivot_wider(names_from = model, values_from = mean_resid) |>
+  left_join(residuals_table |> filter(model == "combined") |> count(period, name = "n"),
+            by = "period")
+
 cat("\n--- Mean deviance residual by period ---\n")
-print_table(residuals_table |> group_by(period, model) |>
-              summarise(mean_resid = mean(residual), .groups = "drop") |>
-              tidyr::pivot_wider(names_from = model, values_from = mean_resid) |>
-              left_join(residuals_table |> filter(model == "combined") |> count(period, name = "n"),
-                        by = "period"), 2)
+print_table(residuals_by_period, 2)
 
 ## Autocorrelation -------------------------------------------------------------
 # Correlated residuals break the independence assumption behind the SEs
 # If adding covariates reduce autocorrelation, they may capture structural/temporal variation beyond the baseline model
 # No day-of-week spike expected at lag 7, as the mobility and incidence series are both smoothed
-# Contacts cut lag-14 from 0.50 to 0.26, so covariates absorb some of the temporal structure
+# Contacts cut lag-14 from 0.48 to 0.23, so covariates absorb some of the temporal structure
 
 # acf() assumes evenly spaced observations, and rows with missing covariates are dropped
 # Confirm each model frame is contiguous before reading anything into the lags
@@ -147,14 +158,16 @@ acfs <- lapply(names(ch1_models), function(model_name) {
          model = model_name)
 }) |> bind_rows()
 
+pooled_acf <- acfs |>
+  filter(lag %in% c(1, 7, 14)) |>
+  tidyr::pivot_wider(names_from = lag, values_from = acf, names_prefix = "lag_")
+
 cat("\n--- Residual autocorrelation ---\n")
-print_table(acfs |> filter(lag %in% c(1, 7, 14)) |>
-              tidyr::pivot_wider(names_from = lag, values_from = acf,
-                                 names_prefix = "lag_"))
+print_table(pooled_acf)
 
 # The ACF above uses one fit across the whole period
 # Systematic over- or under-prediction across long stretches produces autocorrelation on its own
-# Refitting per window removes that source, and lag 1 still stays at 0.82-0.99 throughout
+# Refitting per window removes that source, and lag 1 still stays at 0.72-0.96 throughout
 # Covariates cut lag 7 and 14 in most windows, with lag 14 negative in some fits
 # Baseline decays almost linearly where Rt moved monotonically
 # Covariates decay faster in those same windows
@@ -172,13 +185,14 @@ window_acf <- lapply(window_origins, function(origin) {
   }) |> bind_rows()
 }) |> bind_rows()
 
-cat("\n--- Autocorrelation on non-overlapping 12-week windows ---\n")
-print_table(window_acf |>
-              filter(lag %in% c(1, 7, 14)) |>
-              mutate(model = factor(model, levels = names(ch1_models))) |>
-              arrange(origin, model) |>
-              tidyr::pivot_wider(names_from = lag, values_from = acf,
-                                 names_prefix = "lag_"))
+window_acf_summary <- window_acf |>
+  filter(lag %in% c(1, 7, 14)) |>
+  mutate(model = factor(model, levels = names(ch1_models))) |>
+  arrange(origin, model) |>
+  tidyr::pivot_wider(names_from = lag, values_from = acf, names_prefix = "lag_")
+
+cat("\n--- Autocorrelation on non-overlapping training windows ---\n")
+print_table(window_acf_summary)
 
 ## Validation against inc2prev Rt ----------------------------------------------
 
@@ -214,8 +228,7 @@ rt_compare <- bind_rows(
 rt_wide <- rt_compare |> tidyr::pivot_wider(names_from = source, values_from = Rt)
 
 # Compare Rt estimates from inc2prev, our original renewal + covariate fit, and ours copying their GI
-cat("\n--- Rt agreement with inc2prev ---\n")
-print_table(lapply(c("naive", "fitted", "naive, inc2prev GI"), function(series_name) {
+rt_agreement <- lapply(c("naive", "fitted", "naive, inc2prev GI"), function(series_name) {
   # Compare on the dates both series cover, as each starts at a different point
   common_dates <- complete.cases(rt_wide$inc2prev, rt_wide[[series_name]])
   tibble(series    = series_name,
@@ -227,7 +240,10 @@ print_table(lapply(c("naive", "fitted", "naive, inc2prev GI"), function(series_n
          # Above 1 means wider swings than inc2prev
          sd_ratio  = sd(rt_wide[[series_name]][common_dates]) /
                        sd(rt_wide$inc2prev[common_dates]))
-}) |> bind_rows())
+}) |> bind_rows()
+
+cat("\n--- Rt agreement with inc2prev ---\n")
+print_table(rt_agreement)
 # Copying their GI reduces mean difference and sd_ratio compared to our original GI
 
 dir.create(ch1_diag_config$plot_dir, recursive = TRUE, showWarnings = FALSE)
@@ -255,8 +271,8 @@ ggsave(file.path(ch1_diag_config$plot_dir, "rt_validation.png"), p_rt,
 ## Smooth sensitivity to k -----------------------------------------------------
 
 # See whether s(t) saturates with increased flexibility
-# At k=10, edf=8.8, and at k=40 this is 38.2, suggesting s(t) continues to absorb variability
-# Deviance explained rises from 71.4% to 94.7%
+# At k=10, edf=8.7, and at k=40 this is 38.7, suggesting s(t) continues to absorb variability
+# Deviance explained rises from 91.7% to 100.0%, the latter being a degenerate fit
 # Good argument for excluding s(t) in the primary analysis - it takes over what covariates could explain
 
 k_check <- lapply(ch1_diag_config$smooth_k, function(k) {
@@ -309,9 +325,8 @@ p_window_acf <- window_acf |>
   geom_line() +
   scale_linewidth_manual(values = c(`FALSE` = 0.4, `TRUE` = 1), guide = "none") +
   facet_wrap(~origin, ncol = 2) +
-  labs(title = "Residual autocorrelation on non-overlapping 12-week windows",
-       subtitle = "Consecutive 12-week fits, each starting where the last ended",
-       x = "Lag (days)", y = "ACF", colour = NULL) +
+  labs(title = "Residual autocorrelation, by training window",
+       x = "Lag (days)", y = "Autocorrelation", colour = NULL) +
   theme_minimal() + theme(legend.position = "bottom")
 
 ggsave(file.path(ch1_diag_config$plot_dir, "window_autocorrelation.png"),
@@ -328,11 +343,23 @@ p_family <- lapply(names(fits), function(family_name) {
   geom_hline(yintercept = 0, colour = "grey50") +
   geom_point(size = 0.4, alpha = 0.6) +
   facet_wrap(~family, ncol = 1, scales = "free_y") +
-  labs(title = "Deviance residuals for the combined model, by family",
-       x = NULL, y = "Residual") +
+  labs(title = "Deviance residuals by observation family",
+       subtitle = "Combined model, fitted once over the full study period",
+       x = NULL, y = "Deviance residual") +
   theme_minimal()
 
 ggsave(file.path(ch1_diag_config$plot_dir, "family_residuals.png"), p_family,
        width = 10, height = 5, dpi = 300, bg = "white")
+
+## Save tables -----------------------------------------------------------------
+
+write_csv(family_comparison,             file.path(ch1_diag_config$plot_dir, "table_family_comparison.csv"))
+write_csv(covariate_estimates_by_family, file.path(ch1_diag_config$plot_dir, "table_covariates_by_family.csv"))
+write_csv(window_dispersion,             file.path(ch1_diag_config$plot_dir, "table_window_dispersion.csv"))
+write_csv(residuals_by_period,           file.path(ch1_diag_config$plot_dir, "table_residuals_by_period.csv"))
+write_csv(pooled_acf,                    file.path(ch1_diag_config$plot_dir, "table_residual_acf.csv"))
+write_csv(window_acf_summary,            file.path(ch1_diag_config$plot_dir, "table_window_acf.csv"))
+write_csv(rt_agreement,                  file.path(ch1_diag_config$plot_dir, "table_rt_agreement.csv"))
+write_csv(k_check,                       file.path(ch1_diag_config$plot_dir, "table_smooth_k_sensitivity.csv"))
 
 message("Saved diagnostics to ", ch1_diag_config$plot_dir)

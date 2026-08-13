@@ -12,8 +12,12 @@ library(ggplot2)
 
 ch1_period_config <- list(
   study_start = as.Date("2020-04-01"),
-  study_end   = as.Date("2021-11-30"),
+  study_end   = as.Date("2021-01-27"),
 
+  # FALSE reads the compact file from data-raw/, which must be downloaded first
+  use_remote  = TRUE,
+  oxcgrt_url  = paste0("https://raw.githubusercontent.com/OxCGRT/covid-policy-dataset/",
+                       "main/data/OxCGRT_compact_subnational_v1.csv"),
   # oxcgrt_path = "data-raw/OxCGRT/OxCGRT_simplified_v1.csv",
   oxcgrt_path = "data-raw/OxCGRT/OxCGRT_compact_subnational_v1.csv",
   output_path = "data-processed/ch1_periods.csv",
@@ -38,7 +42,8 @@ period_starts <- tibble::tribble(
 ## Load ------------------------------------------------------------------------
 
 load_oxcgrt_england <- function(config = ch1_period_config) {
-  read_csv(config$oxcgrt_path, show_col_types = FALSE) |>
+  read_csv(if (config$use_remote) config$oxcgrt_url else config$oxcgrt_path,
+           show_col_types = FALSE) |>
     filter(RegionCode == "UK_ENG") |>
     mutate(date = as.Date(as.character(Date), "%Y%m%d")) |>
     # Simplified file:
@@ -62,6 +67,9 @@ load_oxcgrt_england <- function(config = ch1_period_config) {
 
 # Splits the full study period into bins, with 'period' label for the relevant OxCGRT period
 assign_periods <- function(dat, starts = period_starts) {
+  # Drop periods starting after the study window
+  starts <- filter(starts, start <= max(dat$date))
+
   dat |>
     mutate(
       period = cut(date,
@@ -110,7 +118,8 @@ plot_stringency <- function(dat, config = ch1_period_config) {
 
   ggsave(file.path(config$plot_dir, "periods_stringency.png"), p,
          width = 11, height = 5, dpi = 300, bg = "white")
-  p
+
+  invisible(p) # Auto-printing at top level would open a device and write Rplots.pdf
 }
 
 ## Run -------------------------------------------------------------------------

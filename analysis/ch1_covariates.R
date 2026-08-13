@@ -7,12 +7,13 @@ library(ggplot2)
 library(patchwork)
 
 source("R/ch1_mobility_streams.R") # Stream selection moved here for common source across data/covariate/model scripts
+source("R/ch1_contact_covariate.R") # Which contact series is used, shared with the descriptive script
 
 ## Config ----------------------------------------------------------------------
 
 ch1_cov_config <- list(
   
-  contact_covariate = "eigenvalue",   # or "mean_contacts" when made using CoMix
+  contact_covariate = contact_covariate,   # set in R/ch1_contact_covariate.R
 
   # Smooth over a 7-day window (as per Davies et al.)
   # Use trailing window: t-6 to t so no future information used at forecast origin
@@ -28,11 +29,13 @@ ch1_cov_config <- list(
 
 ## Transformations -------------------------------------------------------------
 
-# Allows switching between using eigenvalue or raw mean contacts (I plan to make this switch)
+# Allows switching between the contact matrix eigenvalue and mean contacts per participant
+# Mean contacts are age-standardised, as children join in May 2020 and report far more
+# contacts, so a plain sample mean would step up on recruitment alone
 select_contact_covariate <- function(dat, which) {
   switch(which,
     eigenvalue    = dat$comix_eigen,
-    mean_contacts = stop("mean_contacts has not been computed yet"),
+    mean_contacts = dat$mean_contacts_standardised,
     stop("Unknown contact covariate: ", which)
   )
 }
@@ -68,8 +71,11 @@ build_covariates <- function(config = ch1_cov_config) {
     transmute(
       date,
       incidence,
-      # contacts_raw holds rho(C) from CoMix, not raw contact counts
+      # contacts_raw is whichever contact series the config selects
+      # Both are carried through as well, so either can be plotted or compared
       contacts_raw    = select_contact_covariate(dat, config$contact_covariate),
+      comix_eigen     = dat$comix_eigen,
+      mean_contacts   = dat$mean_contacts_standardised,
       mobility_raw    = composite,
       mobility_smooth = trailing_mean(composite, config$smooth_window)
     ) |>
@@ -92,10 +98,17 @@ plot_covariates <- function(cov, config = ch1_cov_config) {
          x = NULL, y = "% change from baseline") +
     theme_minimal()
 
-  p_contacts <- ggplot(cov, aes(x = date, y = contacts_raw)) +
+  # Stepwise, as one value per survey round is carried forward to daily
+  p_eigenvalue <- ggplot(cov, aes(x = date, y = comix_eigen)) +
     geom_step(colour = "firebrick", linewidth = 0.6, na.rm = TRUE) +
     labs(title = "CoMix contact matrix dominant eigenvalue",
          x = NULL, y = expression(rho(C))) +
+    theme_minimal()
+
+  p_mean_contacts <- ggplot(cov, aes(x = date, y = mean_contacts)) +
+    geom_line(colour = "firebrick", linewidth = 0.6, na.rm = TRUE) +
+    labs(title = "CoMix mean contacts per participant, trailing 14-day, age-standardised",
+         x = NULL, y = "Contacts per day") +
     theme_minimal()
 
   p_zscored <- cov |>
@@ -108,18 +121,28 @@ plot_covariates <- function(cov, config = ch1_cov_config) {
     theme_minimal() +
     theme(legend.position = "bottom")
 
-  combined <- p_mobility / p_contacts / p_zscored
+  annotation <- patchwork::plot_annotation(
+    title = "Behavioural covariate construction",
+    subtitle = "Raw streams and the standardised series entering the model")
+
+  # Both contact series, for comparing them
+  combined <- p_mobility / p_eigenvalue / p_mean_contacts / p_zscored + annotation
   ggsave(file.path(config$plot_dir, "covariates.png"), combined,
+         width = 10, height = 11, dpi = 300, bg = "white")
+
+  # Mean contacts only, matching the series actually used
+  without_eigenvalue <- p_mobility / p_mean_contacts / p_zscored + annotation
+  ggsave(file.path(config$plot_dir, "covariates_mean_contacts.png"), without_eigenvalue,
          width = 10, height = 9, dpi = 300, bg = "white")
 
-  combined
+  invisible(combined) # Auto-printing at top level would open a device and write Rplots.pdf
 }
 
 ## Summary ---------------------------------------------------------------------
 
 report_covariates <- function(cov) {
-  vars <- c("contacts_raw", "mobility_raw", "mobility_smooth",
-            "contacts", "mobility")
+  vars <- c("contacts_raw", "comix_eigen", "mean_contacts",
+            "mobility_raw", "mobility_smooth", "contacts", "mobility")
 
   out <- tibble(
     covariate = vars,

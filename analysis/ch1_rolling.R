@@ -8,10 +8,11 @@ source("analysis/ch1_gam.R")
 ## Config ----------------------------------------------------------------------
 
 ch1_rolling_config <- list(
-  window_weeks  = 12,
+  window_weeks  = 8,
   step_days     = 7,
-  first_origin  = as.Date("2020-07-01"), # Needs updating based on ONS CIS start + gi_max + window_weeks
-  last_origin   = as.Date("2021-10-31"),
+  first_origin  = as.Date("2020-07-01"), # Early enough that every window is full, given CIS start + gi_max
+  # Pre-vaccine cut-off, so the last origin on the weekly grid is the final one at or before this date
+  last_origin   = as.Date("2021-01-01"),
   horizon_weeks = 4,
   n_sim         = 200, # Number of simulations (samples) from each forecast origin
 
@@ -20,12 +21,14 @@ ch1_rolling_config <- list(
   family        = ch1_family, # Negative binomial, set in ch1_gam.R
 
   # Far smaller than the full-period fit
-  # k = 20 over an 84-day window is close to interpolation, and the NB fit fails to converge
+  # k = 20 over a window this short is close to interpolation, and the NB fit fails to converge
   smooth_k      = 5,
 
   coef_path     = "data-processed/ch1_window_coefficients.csv",
   deviance_path = "data-processed/ch1_window_deviance.csv",
-  forecast_path = "data-processed/ch1_forecasts.csv"
+  forecast_path = "data-processed/ch1_forecasts.csv",
+
+  deviance_table_path = "outputs/ch1/table_deviance_explained.csv"
 )
 
 # ch1_gam_config, but with smaller k for shorter window
@@ -206,7 +209,7 @@ cat("\norigins run:", length(windows),
 
 # Averaged over windows, so baseline against a covariate model with and without s(t)
 # dev_expl_increment is dropped here, as baseline explains nothing without s(t) and the
-# increment then equals the model's own deviance explained
+# increment then equals the bchwmodel's own deviance explained
 deviance_summary <- window_deviance |>
   group_by(model, used_smooth) |>
   summarise(mean_dev_expl = round(100 * mean(dev_expl), 1), .groups = "drop") |>
@@ -218,3 +221,5 @@ deviance_summary <- window_deviance |>
 
 cat("\nMean deviance explained by model, with and without s(t):\n")
 print(as.data.frame(deviance_summary), row.names = FALSE)
+
+write_csv(deviance_summary, ch1_rolling_config$deviance_table_path)

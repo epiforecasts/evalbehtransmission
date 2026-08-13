@@ -153,7 +153,8 @@ coefficient_table <- function(fit) {
 fitted_rt <- function(fit, model_data) {
   tibble(
     date = model_data$date,
-    Rt   = exp(predict(fit, type = "link") - model_data$log_Lambda)
+    # as.numeric() drops the matrix attributes predict() returns
+    Rt   = as.numeric(exp(predict(fit, type = "link") - model_data$log_Lambda))
   )
 }
 

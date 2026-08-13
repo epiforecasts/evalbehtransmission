@@ -9,6 +9,7 @@ library(patchwork)
 
 source("R/inc2prev_path.R")
 source("R/ch1_mobility_streams.R")
+source("R/ch1_contact_covariate.R") # Names the contact panel after whichever series is used
 
 ## Config ----------------------------------------------------------------------
 
@@ -50,14 +51,19 @@ period_layer <- function() {
   list(
     geom_rect(data = period_bands, inherit.aes = FALSE,
               aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf,
-                  fill = period), alpha = 0.10),
-    scale_x_date(limits = window, expand = c(0, 0))
+                  fill = period), alpha = 0.06),
+    scale_x_date(limits = window, expand = c(0, 0),
+                 date_breaks = "1 month", date_labels = "%b %Y")
   )
 }
 
 ## Fig 1.1 ---------------------------------------------------------------------
 
 dir.create(ch1_desc_config$output_dir, recursive = TRUE, showWarnings = FALSE)
+
+# Bands are labelled on the top panel only, so the stack needs no period legend
+period_labels <- period_bands |>
+  mutate(midpoint = start + (end - start) / 2)
 
 # Top panel: inc2prev Rt with its 90% credible interval as a reference series
 p_rt <- inc2prev_national |>
@@ -67,76 +73,77 @@ p_rt <- inc2prev_national |>
   geom_hline(yintercept = 1, linetype = "dashed", colour = "grey40") +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3, fill = "grey20") +
   geom_line(aes(y = median), linewidth = 0.6) +
-  labs(y = expression(R[t]), x = NULL, fill = NULL) +
+  geom_text(data = period_labels, inherit.aes = FALSE,
+            aes(x = midpoint, y = Inf, label = period),
+            angle = 90, hjust = 1.05, vjust = 0.4, size = 2.6, colour = "grey30") +
+  labs(title = "Reproduction number, England: inc2prev posterior median and 90% credible interval",
+       y = expression(R[t]), x = NULL, fill = NULL) +
   theme_minimal()
 
-# Middle panel: z-scored covariates from CoMix and Google Mobility used in models
-p_covariates <- covariates |>
-  select(date, contacts, mobility) |>
-  tidyr::pivot_longer(-date, names_to = "covariate") |>
+# Contacts and mobility are drawn separately, as each is a distinct behavioural stream
+# Both are the model-ready covariates, z-scored over the study period
+p_contacts <- covariates |>
   ggplot(aes(x = date)) +
   period_layer() +
   geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
-  geom_line(aes(y = value, colour = covariate), linewidth = 0.6, na.rm = TRUE) +
-  scale_colour_manual(values = c(contacts = "firebrick", mobility = "steelblue")) +
-  labs(y = "z-score", x = NULL, colour = NULL, fill = NULL) +
+  geom_line(aes(y = contacts), colour = "firebrick", linewidth = 0.6, na.rm = TRUE) +
+  labs(title = paste0(contact_covariate_label(), ", England"),
+       y = "z-score", x = NULL, fill = NULL) +
   theme_minimal()
 
-# Bottom panel: OxCGRT Stringency Index
-p_stringency <- ggplot(periods, aes(x = date)) +
+p_mobility_covariate <- covariates |>
+  ggplot(aes(x = date)) +
   period_layer() +
-  geom_line(aes(y = stringency), linewidth = 0.6, colour = "grey20") +
-  labs(y = "Stringency Index", x = "Date", fill = NULL) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
+  geom_line(aes(y = mobility), colour = "steelblue", linewidth = 0.6, na.rm = TRUE) +
+  labs(title = "Google Mobility composite, UK: trailing 7-day mean of four categories",
+       y = "z-score", x = "Date", fill = NULL) +
   theme_minimal()
-
-
-# Optional overlay if showing targeted interventions such as stay-at-home being targeted, not national
-# Otherwise, OxCGRT Stringency Index records strictest policy, giving above-average impression
-if (ch1_desc_config$show_targeted) {
-  p_stringency <- p_stringency +
-    geom_point(data = periods |> filter(stay_at_home_flag == 0),
-               aes(y = stringency), colour = "darkorange", size = 0.6) +
-    labs(caption = "Orange marks days when stay-at-home applied to part of England only")
-}
 
 # Keeps the panels the same width so the x-axes align
-fig_1_1 <- p_rt / p_covariates / p_stringency +
-  plot_layout(guides = "collect") +
+fig_1_1 <- p_rt / p_contacts / p_mobility_covariate +
   plot_annotation(
-    title = "Rt, behavioural covariates and OxCGRT Stringency Index, England",
-    subtitle = "Shading marks pandemic periods; Rt is taken directly from inc2prev"
+    title = "Reproduction number and behavioural covariates",
+    subtitle = paste("Covariates are z-scored over the study period, as entered in the model;",
+                     "mobility is UK-wide, the other series are England")
   ) &
-  theme(legend.position = "bottom")
+  guides(fill = "none") & # Drops the period key, as the bands are labelled directly
+  theme(plot.title = element_text(size = 10))
 
-ggsave(file.path(ch1_desc_config$output_dir, "fig_1_1_rt_covariates_stringency.png"),
+ggsave(file.path(ch1_desc_config$output_dir, "fig_1_1_rt_covariates.png"),
        fig_1_1, width = 11, height = 9, dpi = 300, bg = "white")
 
 ## Descriptive methods figures -------------------------------------------------
 
 # Prevalence is what CIS measures directly, and what inc2prev deconvolves into incidence
 # Included to show the measured series behind the modelled outcome, not as a model input
+# The q columns are on the percentage scale, unlike the per-capita mean and median
 p_prevalence <- inc2prev_national |>
   filter(name == "est_prev") |>
   ggplot(aes(x = date)) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3, fill = "grey40") +
   geom_line(aes(y = median), colour = "grey20", linewidth = 0.6) +
-  labs(title = "ONS CIS prevalence, England",
-       subtitle = "inc2prev median with 90% credible interval",
-       x = "Date", y = "Proportion PCR positive") +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  labs(title = "Modelled SARS-CoV-2 PCR positivity, England",
+       subtitle = "inc2prev posterior median and 90% credible interval, fitted to ONS CIS",
+       x = "Date", y = "Testing positive (%)") +
   theme_minimal()
 
 ggsave(file.path(ch1_desc_config$output_dir, "fig_cis_prevalence.png"),
        p_prevalence, width = 10, height = 4, dpi = 300, bg = "white")
 
 # Infection incidence, the outcome the models are fitted to
+# Only the median enters the models, so the interval here is context rather than an input
 p_incidence <- inc2prev_national |>
   filter(name == "infections") |>
   ggplot(aes(x = date)) +
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3, fill = "steelblue") +
   geom_line(aes(y = median), colour = "steelblue", linewidth = 0.6) +
-  labs(title = "Daily infection incidence, England",
-       subtitle = "inc2prev median with 90% credible interval",
-       x = "Date", y = "Daily infections") +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  scale_y_continuous(labels = scales::label_number(scale = 1e-3, suffix = "k")) +
+  labs(title = "Estimated daily SARS-CoV-2 infection incidence, England",
+       subtitle = "inc2prev posterior median and 90% credible interval; the median is the model outcome",
+       x = "Date", y = "Daily new infections") +
   theme_minimal()
 
 ggsave(file.path(ch1_desc_config$output_dir, "fig_incidence.png"),
@@ -157,12 +164,12 @@ p_mobility <- read_csv(ch1_desc_config$mobility_path, show_col_types = FALSE) |>
   geom_line(linewidth = 0.4) +
   facet_wrap(~category, ncol = 2) +
   scale_colour_manual(values = c(retained = "steelblue", excluded = "grey60")) +
-  labs(title = "Google Mobility, six categories",
-       subtitle = "Blue enter the composite, grey are excluded; dashed lines mark the study window",
+  labs(title = "Google Mobility categories, United Kingdom",
+       subtitle = "Dashed lines mark the study window; percentages are relative to the Jan-Feb 2020 baseline",
        x = "Date", y = "% change from baseline", colour = NULL) +
   theme_minimal() + theme(legend.position = "bottom")
 
-ggsave(file.path(ch1_desc_config$output_dir, "fig_mobility_six_categories.png"),
+ggsave(file.path(ch1_desc_config$output_dir, "fig_mobility_categories.png"),
        p_mobility, width = 10, height = 7, dpi = 300, bg = "white")
 
 message("Saved descriptive figures to ", ch1_desc_config$output_dir)

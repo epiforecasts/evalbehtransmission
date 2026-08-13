@@ -1,0 +1,3 @@
+model,origins,median_beta,min_beta,max_beta,pct_excl_zero
+contacts,27,0.125,-0.059,0.681,93
+mobility,27,0.254,0.024,0.914,100

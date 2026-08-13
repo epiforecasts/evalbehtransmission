@@ -12,9 +12,10 @@ source("R/ch1_mobility_streams.R") # Source Mobility streams used - unified sour
 
 ch1_data_config <- list(
   study_start   = as.Date("2020-04-01"), # inc2prev start until Omicron period
-  study_end     = as.Date("2021-11-30"), # UPDATE if vaccination period removed
+  study_end     = as.Date("2021-01-27"), # Last observation scored, being 4 weeks past the final origin
   use_remote    = TRUE,   # FALSE reads inc2prev from data-raw/inc2prev-main/ - requires local copy
   contacts_path = "data-processed/comix_eigenvalues.csv", # Step-wise raw contact matrix eigenvalues from process_comix.R
+  mean_contacts_path = "data-processed/comix_mean_contacts.csv", # Already daily, from process_comix.R
   mobility_path = "data-processed/google_mobility_UK.csv", # No England series available. England = 84% of UK, intervention timings varied
   output_path   = "data-processed/ch1_data.csv"
 )
@@ -30,12 +31,20 @@ load_incidence <- function() {
 }
 
 # comix_eigen is rho(C), the contact matrix eigenvalue, not rho(K): no susceptibility scaling has been applied yet
-# To do: either create antibody-scaled NGM, or calculate raw mean contacts (avoids circularity using rho(C) as covariate of log(Rt))
-# After calculating mean contact series, save into data-processed/, read in here, and add comix_raw_contacts = (name)
+# One value per survey wave, so it is expanded to daily below
 load_contacts <- function() {
   read_csv(ch1_data_config$contacts_path, show_col_types = FALSE) |>
     filter(!is.na(lambda1)) |>
     select(date, comix_eigen = lambda1) |> # date is median day filled out for that survey wave, -1 as they reported for previous day
+    arrange(date)
+}
+
+# Already a daily trailing mean, so it joins on date with no expansion
+# The sample mean covers whoever responded, whose age mix shifts as children join from May 2020
+# The adult mean holds a fixed definition throughout, so it is the comparable series
+load_mean_contacts <- function() {
+  read_csv(ch1_data_config$mean_contacts_path, show_col_types = FALSE) |>
+    select(date, mean_contacts_standardised, mean_contacts_adult, mean_contacts_sample) |>
     arrange(date)
 }
 
@@ -67,6 +76,7 @@ build_ch1_data <- function() {
   tibble(date = dates) |>
     left_join(load_incidence(), by = "date") |>
     left_join(contacts_daily, by = "date") |>
+    left_join(load_mean_contacts(), by = "date") |>
     left_join(load_mobility(), by = "date") |>
     arrange(date) # For insurance
 }

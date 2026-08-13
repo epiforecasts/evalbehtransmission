@@ -1,28 +1,57 @@
-# Reads raw CoMix social contact survey data from data-raw/CoMix/,
-# computes age-stratified contact matrices, and saves to data-processed/.
+# Reads raw CoMix social contact survey data from data-raw/CoMix/ and writes two
+# contact series to data-processed/, both used as covariates in Chapter 1:
+#   - the dominant eigenvalue of the age-stratified contact matrix, per survey round
+#   - mean contacts per participant per day, as a daily trailing mean
 #
-# CoMix variables of interest:
-#   - Age-stratified contact matrices (home, work, other, all settings)
-#   - Weighted by participant weights and age-group population denominators
-#
-# Downstream use: next-generation matrix construction
+# Contacts are aggregated across all settings, and matrices are symmetrised against
+# England population denominators. No susceptibility scaling is applied, so the
+# eigenvalue is rho(C) rather than rho(K)
 
-install.packages("socialmixr")
 library(socialmixr)
 library(data.table)
 library(tidyverse)
 
+source("R/inc2prev_path.R")
+
 ## Define paths and parameters -------------------------------------------------
 
 data_dir <- "data-raw/CoMix"
-output_dir <- "data-processed/comix_eigenvalues.csv"
+eigenvalues_path <- "data-processed/comix_eigenvalues.csv"
+mean_contacts_path <- "data-processed/comix_mean_contacts.csv"
+
+# FALSE reads inc2prev from a local clone, matching ch1_data.R
+use_remote <- TRUE
+
+# Ages are sampled within their reported band, so fix the seed to make a run reproducible
+seed <- 42
+
+# Contacts truncated per participant per day, following the CMMID CoMix weekly reports
+# A few participants report into the thousands, so the untruncated mean is unusable
+contact_cap <- 50
+
+# Two-week pooling of the alternating panels, trailing rather than centred
+contact_window_days <- 14
+
+# Children join from May 2020 and their share of respondents then swings, so a plain
+# sample mean moves with recruitment rather than behaviour
+child_age_bands <- c("Under 1", "0-4", "5-11", "12-17")
+
+# UK under-18 share in 2020, from the UN WPP 2017 median projection
+# https://cran.r-project.org/package=wpp2017
+# 15-19 is the only band crossing 18, so three of its five years count as children
+child_population_share <- local({
+  utils::data("popFprojMed", "popMprojMed", package = "wpp2017")
+  pop   <- subset(rbind(popFprojMed, popMprojMed), name == "United Kingdom")
+  lower <- as.integer(sub("[-+].*$", "", pop$age))
+  sum(pop$`2020` * ifelse(lower < 15, 1, ifelse(lower == 15, 0.6, 0))) / sum(pop$`2020`)
+})
 
 # Age limits: align with ONS CIS antibody data bins and CoMix ranges
 age_limits <- c(2, 11, 16, 25, 35, 50, 70)
 # Survey population: England 2020, from inc2prev populations.csv, aligned to age_limits above.
-# Do NOT use survey_pop = "United Kingdom" — socialmixr's bundled WPP data only goes to 2015
+# Do not use survey_pop = "United Kingdom" — socialmixr's bundled WPP data only goes to 2015
 # and uses 5-year bands that don't align to age_limits, causing interpolation artefacts.
-survey_pop <- read.csv("data-raw/inc2prev-main/data-processed/populations.csv") |>
+survey_pop <- read.csv(inc2prev_path("data-processed/populations.csv", use_remote)) |>
   dplyr::filter(level == "age_school", geography == "England") |>
   dplyr::select(lower.age.limit = lower_age_limit, population)
 
@@ -38,86 +67,129 @@ load_merge_comix <- function(data_dir) {
   sday_raw         <- fread(file.path(data_dir, "CoMix_uk_sday.csv"))
   extra_raw        <- fread(file.path(data_dir, "CoMix_uk_participant_extra.csv"))
 
-  # Merge sday onto participants: provides sday_id and dayofweek
-  # NOTE: wave in sday is panel-specific (participant's nth survey), NOT a
-  # global time index. Do not group by wave.
-  participants_raw <- merge(
-    participants_raw,
-    sday_raw[, .(part_id, sday_id, dayofweek)],
-    by = "part_id",
-    all.x = TRUE
-  )
-
-  # Merge participant_extra to get survey_round — the global weekly time unit
-  # (survey_round 1-101 each span ~1 calendar week across all panels)
-  participants_raw <- merge(
-    participants_raw,
-    extra_raw[, .(part_id, survey_round)],
-    by = "part_id",
-    all.x = TRUE
-  )
+  # sday_id dates each response, being the day the survey was filled in
+  # survey_round groups responses for the matrices below, taking its date from sday_id
+  # wave is the panel's nth round, carrying no date, so it is never used
+  participants_raw <- participants_raw |>
+    merge(sday_raw[, .(part_id, sday_id, dayofweek)], by = "part_id", all.x = TRUE) |>
+    merge(extra_raw[, .(part_id, survey_round)], by = "part_id", all.x = TRUE)
 
   participants_raw <- participants_raw[!is.na(survey_round)]
 
   list(participants = participants_raw, contacts = contacts_raw)
 }
 
-## Compute weekly contact matrices based on wave -------------------------------
+## Contact matrices by survey round ---------------------------------------------
 
-compute_wave_matrices <- function(data_list, age_limits, survey_pop) {
-  
-  message("Computing contact matrices by wave...")
-  
+compute_round_matrices <- function(data_list, age_limits, survey_pop) {
+
+  message("Computing contact matrices by survey round...")
+
   participants <- data_list$participants
   contacts <- data_list$contacts
-  
-  waves <- sort(unique(participants$survey_round))
 
-  wave_data <- lapply(waves, function(w) {
-    # Subset to current survey_round (global weekly time unit)
-    p_wave <- participants[survey_round == w]
-    c_wave <- contacts[part_id %in% p_wave$part_id]
-    
-    # Cap contacts at 50 per person for stability
-    c_wave <- c_wave[, head(.SD, 50), by = part_id]
-    
-    # Calculate median contact date for this wave
-    dates <- as.Date(p_wave$sday_id, format = "%Y.%m.%d")
-    
-    # Contacts are reported for the previous day, so subtract 1 to get the contact date
-    # Median taken over participants. Spacing ends up irregular and some waves drop out
-    wave_date <- median(dates, na.rm = TRUE) - 1
-    
+  rounds <- sort(unique(participants$survey_round))
+
+  lapply(rounds, function(this_round) {
+    round_participants <- participants[survey_round == this_round]
+    round_contacts     <- contacts[part_id %in% round_participants$part_id]
+
+    # Same cap as the mean contacts below, so the two series truncate identically
+    round_contacts <- round_contacts[, head(.SD, contact_cap), by = part_id]
+
+    # Date the round by the median day its participants responded, less one day as
+    # contacts are reported for the previous day. Rounds are unevenly spaced
+    response_dates <- as.Date(round_participants$sday_id, format = "%Y.%m.%d")
+    round_date     <- median(response_dates, na.rm = TRUE) - 1
+
+    # dayofweek records the day the survey was filled in, but contacts happened the day before
+    # Shifting it means the weekday weighting applies to the day the contacts occurred
+    round_participants <- copy(round_participants)[
+      , dayofweek := as.POSIXlt(response_dates - 1)$wday]
+
     # Build local survey object and clean (parses part_age string bands into numeric)
-    wave_survey <- socialmixr::survey(
-      participants = as.data.frame(p_wave),
-      contacts = as.data.frame(c_wave)
-    )
-    wave_survey <- socialmixr::clean(wave_survey)
+    round_survey <- socialmixr::clean(socialmixr::survey(
+      participants = as.data.frame(round_participants),
+      contacts     = as.data.frame(round_contacts)
+    ))
 
-    # Compute the matrix using socialmixr
-    # Use tryCatch to handle errors in occasional surveys e.g. sparse data early on
-    matrix_all <- tryCatch({
+    # Use tryCatch to handle errors in occasional rounds e.g. sparse data early on
+    round_matrix <- tryCatch({
       socialmixr::contact_matrix(
-        wave_survey,
+        round_survey,
         age_limits = age_limits,
         symmetric = TRUE,
         weigh_dayofweek = TRUE,
-        survey_pop = survey_pop
+        survey_pop = survey_pop,
+        # Almost every age is reported as a band, so socialmixr draws a year uniformly
+        # between est_min and est_max, rather than taking the band midpoint
+        estimated_participant_age = "sample",
+        estimated_contact_age     = "sample",
+        # A contact with no age is dropped on its own, and the participant's other contacts stay
+        missing_contact_age       = "ignore",
+        missing_participant_age   = "remove"
       )$matrix
     }, error = function(e) {
-      warning(sprintf("Matrix computation failed for wave %s: %s", w, e$message))
+      warning(sprintf("Matrix computation failed for round %s: %s", this_round, e$message))
       NULL
     })
-    
+
     list(
-      wave = w,
-      date = wave_date,
-      matrix = matrix_all
+      survey_round = this_round,
+      date         = round_date,
+      matrix       = round_matrix
     )
   })
-  
-  return(wave_data)
+}
+
+
+## Mean contacts per participant per day ---------------------------------------
+# Follows the CMMID CoMix weekly reports: truncate per participant per day, then take the
+# unweighted arithmetic mean over participants, pooled across two weeks so both panels contribute
+# Their window is centred on a survey round, this one is trailing to avoid future leakage
+
+compute_mean_contacts <- function(data_list, window_length = contact_window_days,
+                                  cap = contact_cap) {
+
+  message("Computing mean contacts per day...")
+
+  # Contacts are reported for the previous day, as in the wave dates above
+  responses <- data.table(
+    part_id      = data_list$participants$part_id,
+    part_age     = data_list$participants$part_age,
+    contact_date = as.Date(data_list$participants$sday_id, format = "%Y.%m.%d") - 1
+  )[!is.na(contact_date)]
+
+  # Participants reporting nothing are absent from the contact table and count as zero
+  counts <- data_list$contacts[, .(n_contacts = pmin(.N, cap)), by = part_id]
+  responses <- merge(responses, counts, by = "part_id", all.x = TRUE)
+  responses[is.na(n_contacts), n_contacts := 0]
+  responses[, is_adult := !part_age %in% child_age_bands]
+
+  days <- seq(min(responses$contact_date), max(responses$contact_date), by = "day")
+
+  daily_means <- rbindlist(lapply(days, function(day) {
+    window <- responses[contact_date > day - window_length & contact_date <= day]
+    data.table(
+      date                 = day,
+      mean_contacts_adult  = if (any(window$is_adult))  mean(window$n_contacts[window$is_adult])  else NA_real_,
+      mean_contacts_child  = if (any(!window$is_adult)) mean(window$n_contacts[!window$is_adult]) else NA_real_,
+      mean_contacts_sample = if (nrow(window)) mean(window$n_contacts) else NA_real_,
+      n_responses          = nrow(window)
+    )
+  }))
+
+  # Four days in late July fall between the child panels with no children surveyed, so the
+  # child mean is carried forward. The backward fill covers the day before recruitment starts
+  child_filled <- nafill(nafill(daily_means$mean_contacts_child, "locf"), "nocb")
+
+  # Adults and children averaged separately, recombined at fixed population shares, so the
+  # series tracks behaviour rather than recruitment
+  daily_means[, mean_contacts_standardised :=
+                (1 - child_population_share) * mean_contacts_adult +
+                     child_population_share  * child_filled]
+
+  setcolorder(daily_means, c("date", "mean_contacts_standardised"))[]
 }
 
 
@@ -131,27 +203,25 @@ matrix_to_nextgen <- function(cm) {
 
 ## Extract dominant eigenvalue from matrices -----------------------------------
 
-calculate_dom_eigenvalues <- function(wave_data) {
-  
-  results <- lapply(wave_data, function(wd) {
-    
+calculate_dom_eigenvalues <- function(round_data) {
+
+  results <- lapply(round_data, function(round) {
+
     lambda1 <- NA_real_
-    
-    # Skip waves where matrix contains NA/Inf — sparse early waves; lambda1 stays NA
-    if (!is.null(wd$matrix) && all(is.finite(wd$matrix))) {
-      
-      NGM <- wd$matrix
-      
-      lambda1 <- max(Re(eigen(NGM, only.values = TRUE)$values))
+
+    # Skip rounds where the matrix contains NA/Inf — sparse early rounds; lambda1 stays NA
+    # matrix_to_nextgen() is a pass-through, so this is rho(C), not rho(K)
+    if (!is.null(round$matrix) && all(is.finite(round$matrix))) {
+      lambda1 <- max(Re(eigen(round$matrix, only.values = TRUE)$values))
     }
-    
+
     data.frame(
-      wave = wd$wave,
-      date = wd$date, 
-      lambda1 = lambda1
+      survey_round = round$survey_round,
+      date         = round$date,
+      lambda1      = lambda1
     )
   })
-  
+
   bind_rows(results)
 }
 
@@ -159,112 +229,47 @@ calculate_dom_eigenvalues <- function(wave_data) {
 ## Run full execution ----------------------------------------------------------
 
 main <- function() {
-  
+
+  set.seed(seed)
+
   # Load and merge data
   comix_data <- load_merge_comix(data_dir)
   
-  # Compute matrices
-  wave_matrices <- compute_wave_matrices(
-    data_list = comix_data,
+  # One contact matrix per survey round
+  round_matrices <- compute_round_matrices(
+    data_list  = comix_data,
     age_limits = age_limits,
     survey_pop = survey_pop
   )
 
-  # Apply NGM scaling
-  wave_matrices <- lapply(wave_matrices, function(wd) {
-    wd$matrix <- matrix_to_nextgen(wd$matrix)
-    wd
+  # Currently a pass-through, so no susceptibility scaling is applied
+  round_matrices <- lapply(round_matrices, function(round) {
+    round$matrix <- matrix_to_nextgen(round$matrix)
+    round
   })
 
-  # Extract eigenvalues
-  final_eigenvalues <- calculate_dom_eigenvalues(wave_matrices)
-  
-  # Save outputs
-  if (!dir.exists(dirname(output_dir))) {
-    dir.create(dirname(output_dir), recursive = TRUE)
+  final_eigenvalues <- calculate_dom_eigenvalues(round_matrices)
+
+  # Already daily, so it needs no anchoring to a round
+  mean_contacts <- compute_mean_contacts(comix_data)
+
+  if (!dir.exists(dirname(eigenvalues_path))) {
+    dir.create(dirname(eigenvalues_path), recursive = TRUE)
   }
-  
-  write.csv(final_eigenvalues, output_dir, row.names = FALSE)
-  message(sprintf("Wave eigenvalues saved to %s", output_dir))
+
+  write.csv(final_eigenvalues, eigenvalues_path, row.names = FALSE)
+  write.csv(mean_contacts, mean_contacts_path, row.names = FALSE)
+  message(sprintf("Survey round eigenvalues saved to %s", eigenvalues_path))
+  message(sprintf("Daily mean contacts saved to %s", mean_contacts_path))
+
+  # Days where the child mean was filled rather than observed
+  gaps <- mean_contacts[is.na(mean_contacts_child), .(date)]
+  cat("\n--- Days with no children in the trailing window ---\n")
+  cat(nrow(gaps), "of", nrow(mean_contacts), "days, first child response",
+      format(min(mean_contacts$date[!is.na(mean_contacts$mean_contacts_child)])), "\n")
+  print(as.data.frame(gaps[date > min(mean_contacts$date[!is.na(mean_contacts$mean_contacts_child)])]),
+        row.names = FALSE)
 }
 
 # Run pipeline
 main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## Single-wave diagnostic — run line by line -------
-
-# Step 1: Load raw files exactly as load_merge_comix() does
-d_participants <- fread(file.path(data_dir, "CoMix_uk_participant_common.csv"))
-d_contacts     <- fread(file.path(data_dir, "CoMix_uk_contact_common.csv"))
-d_sday         <- fread(file.path(data_dir, "CoMix_uk_sday.csv"))
-d_extra        <- fread(file.path(data_dir, "CoMix_uk_participant_extra.csv"))
-
-# Step 2: Check for duplicates in sday — if > 1 row per part_id the merge will expand participants
-cat("Rows in sday:", nrow(d_sday), "\n")
-cat("Unique part_ids in sday:", length(unique(d_sday$part_id)), "\n")
-
-# Step 3: Check for duplicates in extra
-cat("Rows in extra:", nrow(d_extra), "\n")
-cat("Unique part_ids in extra:", length(unique(d_extra$part_id)), "\n")
-
-# Step 4: Merge sday and check row count — should equal nrow(d_participants)
-p_merged <- merge(d_participants, d_sday[, .(part_id, sday_id, dayofweek)],
-                  by = "part_id", all.x = TRUE)
-cat("Participants before sday merge:", nrow(d_participants), "\n")
-cat("Participants after sday merge: ", nrow(p_merged), "\n")
-
-# Step 5: Merge extra and check again
-p_merged <- merge(p_merged, d_extra[, .(part_id, survey_round)],
-                  by = "part_id", all.x = TRUE)
-p_merged <- p_merged[!is.na(survey_round)]
-cat("Participants after extra merge and NA drop:", nrow(p_merged), "\n")
-cat("Unique part_ids after merges:", length(unique(p_merged$part_id)), "\n")
-
-# Step 6: Subset to survey_round 1 and inspect
-p1 <- p_merged[survey_round == 10]
-c1 <- d_contacts[part_id %in% p1$part_id]
-cat("survey_round 1 — participants:", nrow(p1), " contacts:", nrow(c1), "\n")
-cat("dayofweek present:", "dayofweek" %in% names(p1), "\n")
-cat("sday_id sample:", head(p1$sday_id), "\n")
-
-# Step 7: Build socialmixr survey object and clean (parses part_age string bands into numeric)
-s1 <- socialmixr::survey(participants = as.data.frame(p1), contacts = as.data.frame(c1))
-s1 <- socialmixr::clean(s1)
-
-# Step 8: Compute contact matrix — no tryCatch so real errors surface
-cm1 <- contact_matrix(
-  s1,
-  age_limits      = age_limits,
-  symmetric       = TRUE,
-  weigh_dayofweek = TRUE,
-  survey_pop      = survey_pop
-)
-cat("Matrix result:\n"); print(cm1$matrix)
-
-# Step 9: Check matrix is finite before computing eigenvalue
-NGM1 <- cm1$matrix
-cat("Any NA:", anyNA(NGM1), "\n")
-cat("Any Inf/NaN:", any(!is.finite(NGM1[!is.na(NGM1)])), "\n")
-
-# Step 10: Compute dominant eigenvalue with guard
-if (is.null(NGM1) || !all(is.finite(NGM1))) {
-  cat("Cannot compute eigenvalue — matrix contains non-finite values\n")
-} else {
-  lambda1 <- max(Re(eigen(NGM1, only.values = TRUE)$values))
-  cat("lambda1:", lambda1, "\n")
-}
-
-## End single-wave diagnostic ---------------------------------------------------

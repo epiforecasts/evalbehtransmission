@@ -1,0 +1,5 @@
+model,no_smooth,with_smooth
+baseline,0,90.8
+contacts,46.1,92.2
+mobility,61.3,93.3
+combined,72.7,94.3
