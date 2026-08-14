@@ -4,6 +4,7 @@
 # Tables run from overall, to horizon, to period, then decomposition
 
 source("analysis/ch1_gam.R")
+source("R/ch1_period_scale.R") # Shared period colours, so shading matches the other figures
 
 library(scoringutils)
 library(ggplot2)
@@ -206,7 +207,7 @@ period_bands <- periods |>
   group_by(period) |>
   summarise(start = min(date), end = max(date), .groups = "drop") |>
   arrange(start) |>
-  mutate(period = factor(period, levels = period)) |>
+  mutate(period = factor(period, levels = ch1_period_levels)) |>
   filter(end >= score_date_limits[1], start <= score_date_limits[2]) |>
   mutate(start = pmax(start, score_date_limits[1]),
          end   = pmin(end,   score_date_limits[2]))
@@ -223,6 +224,7 @@ shade_periods <- function() {
     geom_rect(data = period_bands, inherit.aes = FALSE,
               aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf, fill = period),
               alpha = 0.10),
+    scale_fill_period(),
     score_date_scale()
   )
 }

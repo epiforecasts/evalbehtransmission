@@ -10,6 +10,7 @@ library(patchwork)
 source("R/inc2prev_path.R")
 source("R/ch1_mobility_streams.R")
 source("R/ch1_contact_covariate.R") # Names the contact panel after whichever series is used
+source("R/ch1_period_scale.R") # Shared period colours, so shading matches the other figures
 
 ## Config ----------------------------------------------------------------------
 
@@ -45,13 +46,14 @@ period_bands <- periods |>
   group_by(period) |>
   summarise(start = min(date), end = max(date), .groups = "drop") |>
   arrange(start) |>
-  mutate(period = factor(period, levels = period))
+  mutate(period = factor(period, levels = ch1_period_levels))
 
 period_layer <- function() {
   list(
     geom_rect(data = period_bands, inherit.aes = FALSE,
               aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf,
                   fill = period), alpha = 0.06),
+    scale_fill_period(),
     scale_x_date(limits = window, expand = c(0, 0),
                  date_breaks = "1 month", date_labels = "%b %Y")
   )

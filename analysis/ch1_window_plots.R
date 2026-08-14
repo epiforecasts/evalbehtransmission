@@ -3,6 +3,7 @@
 # Deviance explained shows how much s(t) absorbs relative to the covariates
 
 source("analysis/ch1_gam.R")
+source("R/ch1_period_scale.R") # Shared period colours, so shading matches the other figures
 
 library(ggplot2)
 
@@ -34,7 +35,7 @@ period_bands <- periods |>
   group_by(period) |>
   summarise(start = min(date), end = max(date), .groups = "drop") |>
   arrange(start) |>
-  mutate(period = factor(period, levels = period)) |>
+  mutate(period = factor(period, levels = ch1_period_levels)) |>
   filter(end >= origin_range[1], start <= origin_range[2]) |>
   mutate(start = pmax(start, origin_range[1]),
          end   = pmin(end,   origin_range[2]))
@@ -55,6 +56,7 @@ fig_coefficients_by_origin <- ggplot(coefficient_trajectories, aes(x = origin, y
   geom_rect(data = period_bands, inherit.aes = FALSE,
             aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf, fill = period),
             alpha = 0.08) +
+  scale_fill_period() +
   geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
   geom_linerange(aes(ymin = lower, ymax = upper), colour = "grey30") +
   geom_point(size = 1.2, colour = "grey10") +
