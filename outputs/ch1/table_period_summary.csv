@@ -1,0 +1,7 @@
+period,start,end,days,mean_stringency,n_origins
+Lockdown 1,2020-04-01,2020-05-12,42,79.6,0
+Summer relaxation,2020-05-13,2020-10-11,152,63,15
+Autumn tiers,2020-10-12,2020-11-04,24,65.7,4
+Lockdown 2,2020-11-05,2020-12-02,28,76.2,4
+Winter tiers,2020-12-03,2021-01-04,33,70.5,4
+Lockdown 3,2021-01-05,2021-01-27,23,88,0

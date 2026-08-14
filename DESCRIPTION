@@ -15,17 +15,23 @@ BugReports: https://github.com/epiforecasts/evalbehtransmission/issues
 Depends:
     R (>= 4.0.0)
 Imports:
+  data.table,
   dplyr,
-  readr,
   EpiEstim,
   ggplot2,
-  tidyr,
-  stringr,
+  lubridate,
+  MASS,
   mgcv,
+  patchwork,
+  readr,
+  scales,
   scoringutils,
-  inc2prev
-Remotes:
-  inc2prev=epiforecasts/inc2prev
+  socialmixr,
+  stringr,
+  tibble,
+  tidyr,
+  tidyverse,
+  wpp2017
 Encoding: UTF-8
 Language: en-GB
 Roxygen: list(markdown = TRUE)
