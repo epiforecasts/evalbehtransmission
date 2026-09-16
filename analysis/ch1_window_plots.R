@@ -66,7 +66,7 @@ fig_coefficients_by_origin <- ggplot(coefficient_trajectories, aes(x = origin, y
   guides(fill = guide_legend(nrow = 1, override.aes = list(alpha = 0.6))) + # Period key on one row, drawn more opaque than the bands
   labs(title = expression("Behavioural coefficients"~(beta[k])~"across forecast origins"),
        subtitle = "One 8-week training window per point, fitted without s(t), with 95% Wald intervals",
-       x = "Forecast origin", y = expression("Coefficient on log"~R[t]~"("*beta[k]*")"), fill = NULL) +
+       x = "Forecast origin", y = "Change in log R(t) per SD", fill = NULL) +
   theme_minimal() +
   theme(legend.position = "top")
 

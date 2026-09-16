@@ -22,8 +22,11 @@ ch1_table_config <- list(
   # Components tie at three decimals and coverage sits far below nominal, so neither is ranked
   bold_columns = c("crps", "rel_crps"),
 
-  # Signed errors and proportions do not carry three decimals
-  two_decimals = c("bias", "interval_coverage_50", "interval_coverage_90")
+  # Signed errors do not carry three decimals
+  two_decimals = c("bias"),
+
+  # Coverage is scored as a proportion and reported as a whole percentage
+  percent_columns = c("interval_coverage_50", "interval_coverage_90")
 )
 
 header_labels <- list(
@@ -38,11 +41,13 @@ header_labels <- list(
 
 build_score_table <- function(scores, group_column, value_columns, heading, caption) {
 
-  bold_columns <- intersect(ch1_table_config$bold_columns, value_columns)
+  bold_columns    <- intersect(ch1_table_config$bold_columns, value_columns)
+  percent_columns <- intersect(ch1_table_config$percent_columns, value_columns)
 
   scores <- scores |>
     arrange(.data[[group_column]], model) |>
-    select(all_of(c(group_column, "model", value_columns)))
+    select(all_of(c(group_column, "model", value_columns))) |>
+    mutate(across(all_of(percent_columns), \(x) 100 * x))
 
   # Flagged before rounding, so ties are decided on full precision
   is_best <- scores |>
@@ -64,10 +69,12 @@ build_score_table <- function(scores, group_column, value_columns, heading, capt
 
   table <- as_flextable(grouped, hide_grouplabel = TRUE) |>
     set_header_labels(values = header_labels) |>
-    colformat_double(j = setdiff(value_columns, ch1_table_config$two_decimals),
+    colformat_double(j = setdiff(value_columns,
+                                 c(ch1_table_config$two_decimals, percent_columns)),
                      digits = 3, na_str = "—") |>
     colformat_double(j = intersect(value_columns, ch1_table_config$two_decimals),
                      digits = 2) |>
+    colformat_double(j = percent_columns, digits = 0, suffix = "%") |>
     align(j = value_columns, align = "right", part = "all") |>
     add_header_lines(heading, top = TRUE) |>
     border_remove() |>

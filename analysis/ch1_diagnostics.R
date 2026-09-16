@@ -157,7 +157,9 @@ acfs <- lapply(names(ch1_models), function(model_name) {
                  lag.max = 28, plot = FALSE)
   tibble(lag = as.numeric(acf_out$lag), acf = as.numeric(acf_out$acf),
          model = model_name)
-}) |> bind_rows()
+}) |>
+  bind_rows() |>
+  mutate(model = factor(model, levels = names(ch1_models))) # Keeps colours in step with the other figures
 
 pooled_acf <- acfs |>
   filter(lag %in% c(1, 7, 14)) |>
@@ -260,9 +262,9 @@ p_rt <- rt_compare |>
   scale_colour_manual(values = c("inc2prev"           = "grey40",
                                  "naive"              = "indianred",
                                  "naive, inc2prev GI" = "steelblue")) +
-  labs(title = "Renewal Rt against inc2prev, under each generation interval",
+  labs(title = "Renewal R(t) against inc2prev, under each generation interval",
        subtitle = "Naive (shifted gamma, mean 5.5, sd 2.1, max 21); matched (gamma, mean 3.64, sd 3.08, max 15)",
-       x = "Date", y = expression(R[t]), colour = NULL) +
+       x = "Date", y = "R(t)", colour = NULL) +
   theme_minimal() + theme(legend.position = "bottom")
 
 ggsave(file.path(ch1_diag_config$plot_dir, "rt_validation.png"), p_rt,
@@ -290,8 +292,6 @@ cat("\n--- s(t) with combined covariates, varying k ---\n")
 print_table(k_check, 1)
 
 ## Plots -----------------------------------------------------------------------
-
-dir.create(ch1_diag_config$plot_dir, recursive = TRUE, showWarnings = FALSE)
 
 p_resid <- ggplot(residuals_table, aes(x = date, y = residual, colour = model)) +
   geom_hline(yintercept = 0, colour = "grey50") +

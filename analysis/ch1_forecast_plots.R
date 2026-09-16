@@ -70,7 +70,7 @@ chosen_origin_quantiles <- forecasts |>
                      names_prefix = "q") |>
   mutate(model = factor(model, levels = names(ch1_models)),
          # Row label gives the period and the origin date forecast from
-         period_origin_label = paste0(period, "\n", format(origin)),
+         period_origin_label = paste0(period, "\n", format(origin, "%d %b %Y")),
          period_origin_label = factor(period_origin_label,
                                       levels = unique(period_origin_label[order(origin)])))
 
@@ -93,6 +93,8 @@ fig_1_8 <- ggplot(chosen_origin_quantiles, aes(x = horizon)) +
   geom_point(aes(y = observed), colour = "grey20", size = 1.2) +
   facet_grid(period_origin_label ~ model, scales = "free_y") +
   scale_x_continuous(breaks = 1:4) +
+  # Set explicitly, as free scales otherwise pick a different format in each row
+  scale_y_continuous(labels = scales::label_number(scale = 1e-3, suffix = "k", big.mark = ",")) +
   labs(title = "Weekly forecasts at 1-4 weeks, by model and pandemic period",
        subtitle = paste("One forecast origin per period, taken from its midpoint;",
                         "ribbons are 50% and 90% prediction intervals,",
@@ -137,7 +139,7 @@ rolling_forecast_plot <- ggplot(rolling_quantiles, aes(x = target_date, group = 
              aes(x = target_date, y = observed), colour = "black", size = 0.9) +
   facet_wrap(~model, ncol = 1) +
   scale_x_date(date_breaks = "1 month", date_labels = "%d-%b") +
-  scale_y_continuous(labels = scales::label_number(scale = 1e-3, suffix = "k")) +
+  scale_y_continuous(labels = scales::label_number(scale = 1e-3, suffix = "k", big.mark = ",")) +
   # Shared limit across panels, clipping the few upper tails that run far above any observed week
   coord_cartesian(ylim = c(0, ch1_fan_config$rolling_y_max)) +
   labs(title = "Rolling-origin forecasts against observed incidence, by model",
@@ -171,7 +173,6 @@ zoom_scores <- read_csv(ch1_fan_config$scores_path, show_col_types = FALSE) |>
 
 stopifnot(nrow(zoom_fan) > 0, nrow(zoom_scores) == length(ch1_models))
 
-
 fig_forecast_zoom <- ggplot(zoom_fan, aes(x = target_date)) +
   geom_vline(xintercept = ch1_fan_config$zoom_origin, linetype = "dashed",
              colour = "grey50") +
@@ -186,8 +187,8 @@ fig_forecast_zoom <- ggplot(zoom_fan, aes(x = target_date)) +
             aes(x = min(zoom_observed$target_date), y = Inf, label = label),
             hjust = 0, vjust = 1.5, size = 3.2, colour = "grey20") +
   facet_wrap(~model, ncol = 2) +
-  scale_y_continuous(labels = scales::label_number(scale = 1e-3, suffix = "k")) +
-  labs(title = paste("Forecasts from", format(ch1_fan_config$zoom_origin),
+  scale_y_continuous(labels = scales::label_number(scale = 1e-3, suffix = "k", big.mark = ",")) +
+  labs(title = paste("Forecasts from", format(ch1_fan_config$zoom_origin, "%d %b %Y"),
                      "by model"),
        subtitle = paste("Dashed line marks the forecast origin; ribbons are 50% and 90%",
                         "prediction intervals, black = observed weekly incidence"),

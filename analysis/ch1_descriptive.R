@@ -79,7 +79,7 @@ p_rt <- inc2prev_national |>
             aes(x = midpoint, y = Inf, label = period),
             angle = 90, hjust = 1.05, vjust = 0.4, size = 2.6, colour = "grey30") +
   labs(title = "Reproduction number, England: inc2prev posterior median and 90% credible interval",
-       y = expression(R[t]), x = NULL, fill = NULL) +
+       y = "R(t)", x = NULL, fill = NULL) +
   theme_minimal()
 
 # Contacts and mobility are drawn separately, as each is a distinct behavioural stream
@@ -89,7 +89,7 @@ p_contacts <- covariates |>
   period_layer() +
   geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
   geom_line(aes(y = contacts), colour = "firebrick", linewidth = 0.6, na.rm = TRUE) +
-  labs(title = paste0(contact_covariate_label(), ", England"),
+  labs(title = paste0(contact_covariate_label(), ", UK"),
        y = "z-score", x = NULL, fill = NULL) +
   theme_minimal()
 
@@ -103,14 +103,17 @@ p_mobility_covariate <- covariates |>
   theme_minimal()
 
 # Keeps the panels the same width so the x-axes align
-fig_1_1 <- p_rt / p_contacts / p_mobility_covariate +
+fig_1_1 <- (p_rt / p_contacts / p_mobility_covariate) *
+  theme(plot.title = element_text(size = 11)) +
   plot_annotation(
     title = "Reproduction number and behavioural covariates",
     subtitle = paste("Covariates are z-scored over the study period, as entered in the model;",
-                     "mobility is UK-wide, the other series are England")
+                     "both behavioural streams are UK-wide, while R(t) is for England"),
+    # Sized to match the other chapter figures, where the title carries the whole plot
+    theme = theme(plot.title    = element_text(size = 15),
+                  plot.subtitle = element_text(size = 12))
   ) &
-  guides(fill = "none") & # Drops the period key, as the bands are labelled directly
-  theme(plot.title = element_text(size = 10))
+  guides(fill = "none") # Drops the period key, as the bands are labelled directly
 
 ggsave(file.path(ch1_desc_config$output_dir, "fig_1_1_rt_covariates.png"),
        fig_1_1, width = 11, height = 9, dpi = 300, bg = "white")
@@ -142,7 +145,8 @@ p_incidence <- inc2prev_national |>
   geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.3, fill = "steelblue") +
   geom_line(aes(y = median), colour = "steelblue", linewidth = 0.6) +
   scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
-  scale_y_continuous(labels = scales::label_number(scale = 1e-3, suffix = "k")) +
+  scale_y_continuous(labels = scales::label_number(scale = 1e-3, suffix = "k",
+                                                   big.mark = ",")) +
   labs(title = "Estimated daily SARS-CoV-2 infection incidence, England",
        subtitle = "inc2prev posterior median and 90% credible interval; the median is the model outcome",
        x = "Date", y = "Daily new infections") +
@@ -152,26 +156,23 @@ ggsave(file.path(ch1_desc_config$output_dir, "fig_incidence.png"),
        p_incidence, width = 10, height = 4, dpi = 300, bg = "white")
 
 # All six categories over the full series, so the March 2020 decline is visible
-# even though it precedes the study window
-# Shows which categories enter the composite and which are dropped
 p_mobility <- read_csv(ch1_desc_config$mobility_path, show_col_types = FALSE) |>
   select(date, ends_with("_percent_change_from_baseline")) |>
   tidyr::pivot_longer(-date, names_to = "category") |>
-  mutate(category = sub("_percent_change_from_baseline", "", category),
-         retained = if_else(category %in% mobility_short_names(),
-                            "retained", "excluded")) |>
-  ggplot(aes(x = date, y = value, colour = retained)) +
-  geom_hline(yintercept = 0, colour = "grey60") +
-  geom_vline(xintercept = window, linetype = "dashed", colour = "grey40") +
-  geom_line(linewidth = 0.4) +
-  facet_wrap(~category, ncol = 2) +
-  scale_colour_manual(values = c(retained = "steelblue", excluded = "grey60")) +
-  labs(title = "Google Mobility categories, United Kingdom",
-       subtitle = "Dashed lines mark the study window; percentages are relative to the Jan-Feb 2020 baseline",
-       x = "Date", y = "% change from baseline", colour = NULL) +
-  theme_minimal() + theme(legend.position = "bottom")
+  mutate(category = sub("_percent_change_from_baseline", "", category)) |>
+  ggplot(aes(x = date, y = value)) +
+  annotate("rect", xmin = window[1], xmax = window[2], ymin = -Inf, ymax = Inf,
+           fill = "grey85", alpha = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_line(colour = "grey20", linewidth = 0.3) +
+  facet_wrap(~category,
+             labeller = labeller(category = mobility_display_labels)) +
+  labs(title = "Google Mobility categories, UK",
+       subtitle = "Percentage change relative to Jan-Feb 2020 baseline; shading marks the study period",
+       x = "Date", y = "% change from baseline") +
+  theme_classic()
 
 ggsave(file.path(ch1_desc_config$output_dir, "fig_mobility_categories.png"),
-       p_mobility, width = 10, height = 7, dpi = 300, bg = "white")
+       p_mobility, width = 10, height = 6, dpi = 300, bg = "white")
 
 message("Saved descriptive figures to ", ch1_desc_config$output_dir)

@@ -20,3 +20,13 @@ mobility_retained <- c("retail_recreation", "grocery_pharmacy",
 mobility_short_names <- function(streams = mobility_retained) {
   sub("_percent_change_from_baseline", "", mobility_categories[streams])
 }
+
+# Facet labels keyed by those short names
+mobility_display_labels <- c(
+  retail_and_recreation = "Retail & recreation",
+  grocery_and_pharmacy  = "Grocery & pharmacy",
+  parks                 = "Parks",
+  transit_stations      = "Transit stations",
+  workplaces            = "Workplaces",
+  residential           = "Residential"
+)

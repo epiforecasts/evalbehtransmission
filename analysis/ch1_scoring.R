@@ -234,7 +234,8 @@ shade_periods <- function() {
 incidence_panel <- ggplot(observed_weekly, aes(x = target_date, y = observed)) +
   shade_periods() +
   geom_col(fill = "lightblue3", width = 6) +
-  scale_y_continuous(labels = scales::label_number(scale = 1e-3, suffix = "k")) +
+  scale_y_continuous(labels = scales::label_number(scale = 1e-3, suffix = "k",
+                                                   big.mark = ",")) +
   labs(y = "Weekly infections", x = NULL, fill = NULL) +
   # order = 2 puts the period key below the model key when both are collected
   guides(fill = guide_legend(nrow = 1, order = 2, override.aes = list(alpha = 0.5))) +
@@ -326,9 +327,10 @@ fig_crps_decomposition <- ggplot(decomposition_by_horizon,
                                  aes(x = model, y = score, fill = component)) +
   geom_col(width = 0.7) +
   facet_wrap(~horizon, nrow = 1,
-             labeller = labeller(horizon = \(h) paste(h, "weeks ahead"))) +
+             labeller = labeller(horizon = \(h) paste0(h, ifelse(h == "1", " week", " weeks"),
+                                                       " ahead"))) +
   scale_fill_manual(values = component_colours,
-                    labels = c("Overprediction", "Underprediction", "Dispersion")) +
+                    labels = c("Over-prediction", "Under-prediction", "Dispersion")) +
   labs(title = "log-CRPS decomposition by model and horizon",
        subtitle = "Components sum to log-CRPS, averaged over all forecast origins",
        x = NULL, y = "Contribution to log-CRPS", fill = NULL) +

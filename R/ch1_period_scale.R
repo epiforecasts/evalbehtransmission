@@ -9,7 +9,8 @@ ch1_period_levels <- c("Lockdown 1", "Summer relaxation", "Autumn tiers",
 ch1_period_colours <- setNames(scales::hue_pal()(length(ch1_period_levels)),
                                ch1_period_levels)
 
-# drop = FALSE holds each period's colour when a figure's date range excludes one
+# Values are matched by name, so a period keeps its colour wherever it appears
+# Unused levels are dropped, so a figure's legend lists only the periods it shades
 scale_fill_period <- function(...) {
-  ggplot2::scale_fill_manual(values = ch1_period_colours, drop = FALSE, ...)
+  ggplot2::scale_fill_manual(values = ch1_period_colours, drop = TRUE, ...)
 }
