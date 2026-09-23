@@ -1,25 +1,18 @@
 # Age-stratified prevalence and incidence plots using ONS CIS data processed by inc2prev.
 # Data source: https://github.com/epiforecasts/inc2prev
-# To use locally: clone inc2prev into data-raw/inc2prev-main/
-# To read directly from GitHub: set use_remote <- TRUE below
 
 library(dplyr)
 library(readr)
 library(ggplot2)
 
-use_remote <- FALSE
+source("R/inc2prev_path.R")
 
-inc2prev_path <- function(path) {
-  if (use_remote) {
-    paste0("https://raw.githubusercontent.com/epiforecasts/inc2prev/refs/heads/main/", path)
-  } else {
-    file.path("data-raw/inc2prev-main", path)
-  }
-}
+# FALSE reads inc2prev from a local clone, matching ch1_data.R
+use_remote <- TRUE
 
 ## Age groups, populations and labels --------
 
-age_populations_labelled <- read_csv(inc2prev_path("data-processed/populations.csv")) |>
+age_populations_labelled <- read_csv(inc2prev_path("data-processed/populations.csv", use_remote)) |>
   filter(geography == "England", level == "age_school") |>
   select(lower_age_limit, age_pop = population)
 
@@ -39,7 +32,7 @@ total_pop <- sum(age_populations_labelled$age_pop)
 # Age-stratified prevalence from ONS CIS (proportion positive within each age group)
 # Each date has multiple estimates based on different sources? Must fix to avoid overcounting
 # UPDATE: There's clearly data from different publication dates. Filter to the latest one.
-cis_age <- read_csv(inc2prev_path("data-processed/cis_age.csv")) |>
+cis_age <- read_csv(inc2prev_path("data-processed/cis_age.csv", use_remote)) |>
   filter(geography == "England", level == "age_school") |>
   slice_max(publication_date, by = c(start_date, end_date, lower_age_limit)) |>
   select(start_date, end_date, lower_age_limit,
@@ -88,7 +81,7 @@ ggsave("outputs/prevalence_by_age.png", prev_byage_plot, width = 10, height = 5)
 
 
 ## INCIDENCE plots -----------
-incidence_age <- read_csv(inc2prev_path("outputs/estimates_age.csv")) |>
+incidence_age <- read_csv(inc2prev_path("outputs/estimates_age.csv", use_remote)) |>
   filter(level == "age_school", name == "infections") |> # Implicitly, is this data for only England?
   select(date, age_group = variable, inc = q50, inc_q05 = q5, inc_q95 = q95) |>
   mutate(age_group = factor(age_group, levels = levels(age_populations_labelled$age_group)))

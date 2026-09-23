@@ -9,25 +9,21 @@ library(tidyverse)
 library(patchwork)
 
 source("R/compute_lambda.R")
+source("R/inc2prev_path.R")
 
 dir.create("outputs/rtglm", recursive = TRUE, showWarnings = FALSE)
+
+# Forecasts draw coefficients and sample Poisson counts, so fix the seed to make a run reproducible
+set.seed(42)
 
 si_distr   <- discr_si(k = 0:21, mu = 5.5, sigma = 2.1)
 si_distr   <- si_distr / sum(si_distr)
 gi_weights <- si_distr[-1]
 
-# DATA PATH thing - will tidy this to avoid link and package repetition across scripts (or use submodules)
+# FALSE reads inc2prev from a local clone, matching ch1_data.R
 use_remote <- TRUE
 
-inc2prev_path <- function(path) {
-  if (use_remote) {
-    paste0("https://raw.githubusercontent.com/epiforecasts/inc2prev/refs/heads/main/", path)
-  } else {
-    file.path("data-raw/inc2prev-main", path)
-  }
-}
-
-dat <- read_csv(inc2prev_path("outputs/estimates_national.csv"),
+dat <- read_csv(inc2prev_path("outputs/estimates_national.csv", use_remote),
                 show_col_types = FALSE) |>
   filter(variable == "England", name == "infections") |>
   dplyr::select(date, incidence = q50) |>
