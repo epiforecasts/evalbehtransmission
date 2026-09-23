@@ -1,0 +1,236 @@
+---
+title: "Synthetic checks: how GAM splits signal between s(t) and covariates"
+format: html
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(mgcv)
+library(dplyr)
+library(ggplot2)
+
+source("simulate_recovery.R")
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+## What this checks
+
+- Can a known beta1 be recovered, with its confidence interval, and under what conditions?
+- How much of that signal does s(t) take, when the truth is known to sit in the covariate?
+- Does NB noise change what s(t) absorbs?
+- How often does the interval exclude zero when beta1 is truly zero?
+- Are the intervals honest, once GI, theta and future covariates are all known?
+- Is the covariate identifiable because it is rough, or because it falls outside the span of s(t)?
+- How does recovery of beta1 change with window length and k?
+
+## The covariates
+
+Smooth vs rough covariates
+
+```{r}
+#| label: fig-covariates
+
+set.seed(1)
+
+covariates <- bind_rows(
+  tibble(t = seq_len(synthetic_config$n_days),
+         covariate = make_piecewise_covariate(),
+         type = "Piecewise"),
+  tibble(t = seq_len(synthetic_config$n_days),
+         covariate = make_rough_covariate(),
+         type = "Rough")
+)
+
+ggplot(covariates, aes(x = t, y = covariate)) +
+  geom_line() +
+  facet_wrap(~ type, ncol = 1) +
+  labs(x = "Day", y = "Covariate (z-scored)") +
+  theme_minimal()
+```
+
+## One simulated outbreak
+
+What the renewal simulation produces, and that Lambda_t comes from realised counts.
+
+```{r}
+#| label: fig-outbreak
+
+set.seed(1)
+
+# beta1 is 0 in the config, which would give a flat Rt, so the demo sets its own
+demo_beta1 <- 0.3
+
+demo_covariate <- make_piecewise_covariate()
+sim <- simulate_outbreak(demo_covariate, beta1 = demo_beta1, noise = FALSE)
+
+outbreak <- bind_rows(
+  tibble(t = sim$t, value = sim$incidence, panel = "Incidence"),
+  tibble(t = sim$t, value = sim$rt,        panel = "Rt"),
+  tibble(t = sim$t, value = sim$covariate, panel = "Covariate")
+)
+
+ggplot(outbreak, aes(x = t, y = value)) +
+  geom_line() +
+  geom_hline(data = tibble(panel = "Rt"), aes(yintercept = 1), linetype = "dashed") +
+  facet_wrap(~ panel, ncol = 1, scales = "free_y") +
+  labs(x = "Day", y = NULL) +
+  theme_minimal()
+```
+
+```{r}
+#| label: fig-rt-recovery
+
+gi_weights <- make_gi_weights()
+
+frame <- sim |>
+  mutate(Lambda_t   = compute_lambda(incidence, gi_weights),
+         log_Lambda = log(Lambda_t)) |>
+  filter(is.finite(log_Lambda))
+
+# predict() carries the offset, so subtracting log_Lambda leaves log Rt
+recovered_rt <- function(fit) exp(predict(fit, newdata = frame, type = "link") - frame$log_Lambda)
+
+rt_compare <- bind_rows(
+  tibble(t = frame$t, rt = frame$rt, source = "True"),
+  tibble(t = frame$t,
+         rt = recovered_rt(fit_synthetic_renewal(sim, use_smooth = FALSE)),
+         source = "Recovered, no s(t)"),
+  tibble(t = frame$t,
+         rt = recovered_rt(fit_synthetic_renewal(sim, use_smooth = TRUE)),
+         source = "Recovered, with s(t)")
+)
+
+ggplot(rt_compare, aes(x = t, y = rt, colour = source)) +
+  geom_line() +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  labs(x = "Day", y = "Rt", colour = NULL) +
+  theme_minimal()
+```
+
+## Fit without s(t)
+
+Whether beta1 is recovered
+
+```{r}
+#| label: tbl-fit-no-smooth
+
+fit_no_smooth <- fit_synthetic_renewal(sim, use_smooth = FALSE)
+
+summarise_beta1_recovery(fit_no_smooth, demo_beta1)
+```
+
+## Fit with s(t)
+
+How beta1 recovery changes when s(t) is included
+
+```{r}
+#| label: tbl-fit-smooth
+
+fit_smooth <- fit_synthetic_renewal(sim, use_smooth = TRUE)
+
+summarise_beta1_recovery(fit_smooth, demo_beta1)
+```
+
+## With observation noise
+
+Whether adding NB noise changes what s(t) absorbs
+
+```{r}
+#| label: tbl-fit-noise
+
+# Repeats the with/without s(t) fits but on the NB-drawn counts
+# One table, one row per s(t) setting
+```
+
+```{r}
+#| label: fig-noisy-outbreaks
+
+# Incidence from several NB draws, over the noiseless curve
+```
+
+## Where the signal goes
+
+True covariate effect, what the fit attributed, and what s(t) absorbed
+
+```{r}
+#| label: fig-log-rt-decomposition
+
+# Plots the true and fitted covariate effects alongside fitted s(t)
+# All on the log Rt scale
+```
+
+## Repeated draws
+
+One draw gives one estimate, many give bias and coverage
+
+```{r}
+#| label: tbl-recovery
+#| cache: true
+
+set.seed(1)
+
+recovery <- replicate_beta1_recovery(n_draws = 100, beta1 = demo_beta1)
+
+recovery |>
+  group_by(covariate_type, use_smooth, noise) |>
+  summarise(mean_estimate = mean(estimate),
+            bias          = mean(estimate) - demo_beta1,
+            sd            = sd(estimate),
+            mean_se       = mean(se),
+            coverage      = mean(covers),
+            .groups = "drop")
+```
+
+```{r}
+#| label: fig-beta1-recovery
+
+recovery_labelled <- recovery |>
+  mutate(smooth_label    = if_else(use_smooth, "With s(t)", "No s(t)"),
+         noise_label     = if_else(noise, "NB noise", "Noiseless"),
+         covariate_label = if_else(covariate_type == "piecewise", "Piecewise", "Rough"))
+
+ggplot(recovery_labelled, aes(x = smooth_label, y = estimate)) +
+  geom_violin() +
+  geom_hline(yintercept = demo_beta1, linetype = "dashed") +
+  facet_grid(covariate_label ~ noise_label) +
+  labs(x = NULL, y = "Recovered beta1") +
+  theme_minimal()
+```
+
+## Concurvity
+
+How much of the covariate lies inside the span of s(t)
+
+```{r}
+#| label: tbl-concurvity
+
+# Concurvity depends on the covariate and the spline basis
+# Same value for every draw, so compute it once per covariate
+# Reports worst, observed and estimate
+```
+
+## Window length and k
+
+Whether recovery and coverage change with window length and k
+
+```{r}
+#| label: tbl-window-k
+
+# Sweeps window length and k, one row per combination
+```
+
+## Implications for Chapter 1
+
+Discuss whether s(t) stays as diagnostic-only, and whether reported coefficients are affected by including it or not Should s(t) be included for the forecast models, not just for the in-sample fit? What effect would this have on forecast performance, and how would it affect the question we're trying to answer on what each dataset explains?
+
+## Next steps
+
+- Real UK mobility in place of the synthetic covariate
+- Process noise on log Rt, as an AR(1) or random walk rather than iid Gaussian
+- Time-varying beta1 over rolling windows, matching the rolling-origin design in Chapter 1
+- Smoothed covariates, which behave like a smooth and may worsen concurvity
