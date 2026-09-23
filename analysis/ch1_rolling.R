@@ -160,7 +160,9 @@ run_window <- function(dat, origin, rolling_config = ch1_rolling_config,
 
 ## Run all origins -------------------------------------------------------------
 
-dat <- read_csv(ch1_gam_config$input_path, show_col_types = FALSE)
+# run_window() reads the observed horizon and incidence history by row order
+dat <- read_csv(ch1_gam_config$input_path, show_col_types = FALSE) |>
+  arrange(date)
 
 origins <- seq(ch1_rolling_config$first_origin, ch1_rolling_config$last_origin,
                by = ch1_rolling_config$step_days)

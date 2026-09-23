@@ -113,13 +113,13 @@ ggsave(file.path(ch1_fan_config$output_dir, "fig_1_8_forecast_fans.png"),
 # Origins step weekly, so all target weeks fall on the same weekday (Wednesday)
 
 rolling_quantiles <- forecasts |>
-  as_forecast_sample(forecast_unit = c("model", "horizon", "origin", "period")) |>
+  as_forecast_sample(forecast_unit = c("model", "horizon", "origin", "period",
+                                       "target_date")) |>
   as_forecast_quantile(probs = ch1_fan_config$probs) |>
   as_tibble() |>
   tidyr::pivot_wider(names_from = quantile_level, values_from = predicted,
                      names_prefix = "q") |>
-  mutate(model       = factor(model, levels = names(ch1_models)),
-         target_date = origin + horizon * 7)
+  mutate(model = factor(model, levels = names(ch1_models)))
 
 observed_weekly <- forecasts |>
   distinct(target_date, observed) |>

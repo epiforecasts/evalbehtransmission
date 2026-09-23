@@ -36,4 +36,4 @@ Data goes to `data-processed/`, tables and figures to `outputs/ch1/`
 renv::restore()
 Rscript analysis/run_pipeline.R
 
-Everything is fetched remotely, so a fresh close needs no local data. Each processing script has a `use_remote` toggle for working from local copies. `process_comix.R` downloads ~150MB and takes a few minutes potentially. After that, everything runs within a couple minutes.
+Everything is fetched remotely, so a fresh clone needs no local data. Each processing script has a `use_remote` toggle for working from local copies. `process_comix.R` downloads ~150MB and takes a few minutes potentially. After that, everything runs within a couple of minutes.

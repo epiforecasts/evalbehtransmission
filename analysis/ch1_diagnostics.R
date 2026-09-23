@@ -12,6 +12,7 @@ library(patchwork)
 ch1_diag_config <- list(
   periods_path = "data-processed/ch1_periods.csv",
   plot_dir     = "outputs/ch1",
+  use_remote   = TRUE,   # FALSE reads inc2prev from data-raw/inc2prev-main/ - requires local copy
   smooth_k     = c(5, 10, 20, 40), # Test how readily a spline term will just absorb everything
 
   # Matches window_weeks in ch1_rolling.R, for the window-level checks below
@@ -216,7 +217,8 @@ inc2prev_gi <- function(mu, sd, max_val) {
 }
 
 rt_compare <- bind_rows(
-  read_csv(inc2prev_path("outputs/estimates_national.csv"), show_col_types = FALSE) |>
+  read_csv(inc2prev_path("outputs/estimates_national.csv", ch1_diag_config$use_remote),
+           show_col_types = FALSE) |>
     filter(variable == "England", name == "R") |>
     transmute(date, Rt = q50, source = "inc2prev"), # Median estimate for Rt
   combined_fit$model_data |>

@@ -130,10 +130,14 @@ plot_covariates <- function(cov, config = ch1_cov_config) {
   ggsave(file.path(config$plot_dir, "covariates.png"), combined,
          width = 10, height = 11, dpi = 300, bg = "white")
 
-  # Mean contacts only, matching the series actually used
-  without_eigenvalue <- p_mobility / p_mean_contacts / p_zscored + annotation
-  ggsave(file.path(config$plot_dir, "covariates_mean_contacts.png"), without_eigenvalue,
-         width = 10, height = 9, dpi = 300, bg = "white")
+  # One contact series only, matching the series actually used
+  p_contacts <- switch(config$contact_covariate,
+    eigenvalue    = p_eigenvalue,
+    mean_contacts = p_mean_contacts
+  )
+  selected_covariate_plots <- p_mobility / p_contacts / p_zscored + annotation
+  ggsave(file.path(config$plot_dir, paste0("covariates_", config$contact_covariate, ".png")),
+         selected_covariate_plots, width = 10, height = 9, dpi = 300, bg = "white")
 
   invisible(combined) # Auto-printing at top level would open a device and write Rplots.pdf
 }

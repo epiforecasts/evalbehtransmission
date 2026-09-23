@@ -13,7 +13,7 @@ License: MIT + file LICENSE
 URL: https://github.com/epiforecasts/evalbehtransmission/
 BugReports: https://github.com/epiforecasts/evalbehtransmission/issues
 Depends:
-    R (>= 4.0.0)
+    R (>= 4.1.0)
 Imports:
   data.table,
   dplyr,

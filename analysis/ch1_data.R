@@ -99,8 +99,11 @@ report_coverage <- function(dat) {
 
   # Print the first fortnight of observed CoMix eigenvalues to illustrate stepwise processing
   first <- which(!is.na(dat$comix_eigen))[1]
-  cat("\nContacts held constant between waves:\n")
-  print(as.data.frame(dat[first:(first + 13), c("date", "comix_eigen")]), row.names = FALSE)
+  if (!is.na(first)) {
+    cat("\nContacts held constant between waves:\n")
+    print(as.data.frame(dat[first:min(first + 13, nrow(dat)), c("date", "comix_eigen")]),
+          row.names = FALSE)
+  }
 
   invisible(out) # Avoid printing table twice
 }

@@ -128,7 +128,7 @@ ggplot() +
   facet_wrap(~location_type) +
   labs(
     title    = "Google Mobility & Estimated Rt, England",
-    subtitle = "Black line: EpiEstim Rt",
+    subtitle = "Black line: inc2prev Rt",
     x        = "Date"
   ) +
   theme_classic() +

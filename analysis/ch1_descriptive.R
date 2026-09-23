@@ -18,6 +18,7 @@ ch1_desc_config <- list(
   covariates_path = "data-processed/ch1_covariates.csv",
   periods_path    = "data-processed/ch1_periods.csv",
   output_dir      = "outputs/ch1",
+  use_remote      = TRUE,   # FALSE reads inc2prev from data-raw/inc2prev-main/ - requires local copy
 
   # Raw file, so the mobility panel can show the collapse before the study window
   mobility_path   = "data-processed/google_mobility_UK.csv",
@@ -34,7 +35,8 @@ periods    <- read_csv(ch1_desc_config$periods_path, show_col_types = FALSE)
 window <- range(covariates$date)
 
 # Read once, then filter by name for each series used below
-inc2prev_national <- read_csv(inc2prev_path("outputs/estimates_national.csv"),
+inc2prev_national <- read_csv(inc2prev_path("outputs/estimates_national.csv",
+                                            ch1_desc_config$use_remote),
                               show_col_types = FALSE) |>
   filter(variable == "England", date >= window[1], date <= window[2]) |>
   select(date, name, median = q50, lower = q5, upper = q95)

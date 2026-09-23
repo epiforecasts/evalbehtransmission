@@ -110,9 +110,9 @@ renewal_formula <- function(covariates, use_smooth = FALSE, k) {
 # n_obs indicates number of data points used in a given model fit - affects performance and comparison
 # A mobility model with complete data may trivially differ from a contact model with incomplete data
 
-# Defaults: no behavioural covariates, lag, s(t) term, Poisson log link, and full date range
+# Defaults: no behavioural covariates, lag, s(t) term, negative binomial, and full date range
 fit_renewal_gam <- function(data, covariates = character(0), lag = 0,
-                            use_smooth = FALSE, family = poisson(link = "log"),
+                            use_smooth = FALSE, family = ch1_family(),
                             fit_from = NULL, fit_to = NULL,
                             config = ch1_gam_config) {
 
@@ -164,7 +164,7 @@ fitted_rt <- function(fit, model_data) {
 # Runs only when this file is executed directly, not when other scripts use the functions above
 # Pass full series and restrict fit to example five month period Sep 2020-Jan 2021
 
-# NOTE: uses Poisson default which gives overly confident estimates
+# NOTE: fits Poisson here, which gives overly confident estimates
 # SEs drop to 0.000, contacts flip to -0.001 in combined model, s(t) with k=20 hits 100% deviance explained
 if (sys.nframe() == 0) {
 
@@ -174,6 +174,7 @@ if (sys.nframe() == 0) {
 
   for (model_name in names(ch1_models)) {
     fitted_model <- fit_renewal_gam(dat, covariates = ch1_models[[model_name]],
+                                    family = poisson(link = "log"),
                                     fit_from = from, fit_to = to)
 
     cat("\n---", model_name, "---\n")
@@ -188,6 +189,7 @@ if (sys.nframe() == 0) {
 
   # Introduce smoothing term to explore whether how much residual temporal variation this absorbs
   smooth_fit <- fit_renewal_gam(dat, ch1_models$combined, use_smooth = TRUE,
+                              family = poisson(link = "log"),
                               fit_from = from, fit_to = to)
   cat("\n--- combined + s(t) ---\n")
   cat(deparse1(smooth_fit$formula), "\n")
