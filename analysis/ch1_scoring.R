@@ -25,7 +25,10 @@ ch1_scoring_config <- list(
   probs         = c(0.05, 0.25, 0.5, 0.75, 0.95),
 
   # The decomposition-over-time figure shows one horizon at a time, in weeks ahead
-  decomposition_horizon_weeks = 2
+  decomposition_horizon_weeks = 2,
+
+  # Single time horizon used for sensitivity checks and GI impact
+  comparison_horizon_weeks = 2
 )
 
 print_table <- function(x, digits = 3) {
@@ -407,3 +410,18 @@ write_csv(crps_period_table,    file.path(ch1_scoring_config$output_dir, "table_
 write_csv(crps_natural_table,   file.path(ch1_scoring_config$output_dir, "table_crps_natural.csv"))
 
 message("Saved tables and figures to ", ch1_scoring_config$output_dir)
+
+## Generation interval record --------------------------------------------------
+# Written to its own file per generation interval
+# The label reflects the weights used, to distinguish cases
+# ch1_gi_comparison.R reads these files
+
+gi_record_table <- crps_horizon_table |>
+  filter(horizon == ch1_scoring_config$comparison_horizon_weeks) |> # Horizon for comparison
+  select(model, horizon, crps, rel_crps) |>
+  mutate(gi = gi_label, .before = model)
+
+write_csv(gi_record_table, file.path("data-processed", paste0("ch1_", gi_label, ".csv")))
+
+cat("\n--- log-CRPS at the comparison horizon, recorded for", gi_label, "---\n")
+print_table(gi_record_table)

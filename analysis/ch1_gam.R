@@ -14,13 +14,6 @@ source("R/inc2prev_path.R")
 ## Config ----------------------------------------------------------------------
 
 ch1_gam_config <- list(
-  
-  # Single generation interval used throughout
-  # To do: add Delta switch to mean 4.7 around May 2021 + check inc2prev formulation/epiparameter
-  gi_mean  = 5.5,
-  
-  gi_sd    = 2.1,
-  gi_max   = 21, # Overly conservative given the proportion of infections that happen before 21d
 
   smooth_k = 20,
 
@@ -41,12 +34,32 @@ ch1_family <- nb
 
 ## Generation interval ---------------------------------------------------------
 
-# Drop day-0 elements, avoids circular counting and needing I_t to estimate I_t
-make_gi_weights <- function(config = ch1_gam_config) {
-  si <- discr_si(k = 0:config$gi_max, mu = config$gi_mean, sigma = config$gi_sd) # discr_si=0 at k=0 by default
+# Both functions drop the day-0 element, avoiding circular counting and needing I_t to estimate I_t
+# Each returns weights for lags 1 to gi_max, normalised
+
+# Discretised shifted gamma
+gi_weights_epiestim <- function(gi_mean, gi_sd, gi_max) {
+  si <- discr_si(k = 0:gi_max, mu = gi_mean, sigma = gi_sd) # discr_si=0 at k=0 by default
   si <- si / sum(si)
   si[-1]
 }
+
+# Plain gamma CDF differences
+# Point estimates are used for the mean and sd
+gi_weights_inc2prev <- function(gi_mean, gi_sd, gi_max) {
+  pmf <- diff(pgamma(1:(gi_max + 1), shape = (gi_mean / gi_sd)^2, rate = gi_mean / gi_sd^2))
+  pmf / sum(pmf)
+}
+
+# The generation interval in use
+make_gi_weights <- function() {
+  gi_weights_epiestim(gi_mean = 5.5, gi_sd = 2.1, gi_max = 21)
+  # gi_weights_inc2prev(gi_mean = 3.64, gi_sd = 3.08, gi_max = 15)
+}
+
+# Names the scoring outputs, so swap alongside the call above
+gi_label <- "gi_epiestim"
+# gi_label <- "gi_inc2prev"
 
 ## Model frame -----------------------------------------------------------------
 
@@ -116,7 +129,7 @@ fit_renewal_gam <- function(data, covariates = character(0), lag = 0,
                             fit_from = NULL, fit_to = NULL,
                             config = ch1_gam_config) {
 
-  model_data    <- build_model_frame(data, covariates, lag, make_gi_weights(config),
+  model_data    <- build_model_frame(data, covariates, lag, make_gi_weights(),
                                      fit_from, fit_to)
   model_formula <- renewal_formula(covariates, use_smooth, config$smooth_k)
   fit           <- gam(model_formula, family = family, data = model_data,
