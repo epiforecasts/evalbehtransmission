@@ -10,7 +10,7 @@ library(ggplot2)
 ## Config ----------------------------------------------------------------------
 
 a1_1_config <- list(
-  output_dir = "stashed/appendix/outputs",
+  output_dir = "analysis/appendix/outputs",
 
   # Existing non-overlapping check, used below to verify the per-origin dispersion
   window_dispersion_path = "outputs/ch1/table_window_dispersion.csv",

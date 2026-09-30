@@ -16,7 +16,7 @@ a1_5_config <- list(
   forecast_path = "data-processed/ch1_forecasts.csv",
   scores_path   = "data-processed/ch1_scores.csv",
   coef_path     = "data-processed/ch1_window_coefficients.csv",
-  output_dir    = "stashed/appendix/outputs",
+  output_dir    = "analysis/appendix/outputs",
 
   # Matches ch1_rolling.R, so the refitted window is the one that produced the forecasts
   window_weeks = 8,

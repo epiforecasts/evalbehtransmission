@@ -11,7 +11,7 @@ library(ggplot2)
 
 a1_4_config <- list(
   coef_path  = "data-processed/ch1_window_coefficients.csv",
-  output_dir = "stashed/appendix/outputs",
+  output_dir = "analysis/appendix/outputs",
 
   lag_max = 28
 )
