@@ -15,7 +15,7 @@ Run script in this order, or use `analysis/run_pipeline.R`
 | Script | What it does |
 |---|---|
 | `process_mobility.R` | Google Mobility, UK national rows |
-| `process_comix.R` | CoMix contact matrix eigenvalue per survey round, and daily mean contacts (14-day trailing, age-standardised) |
+| `process_comix.R` | CoMix contact matrix eigenvalue per survey round, and daily mean contacts (14-day trailing, weighted by age × sex to the ONS mid-2020 UK population from inc2prev's `data-raw/uk_pop.xls`) |
 | `ch1_data.R` | Creates a single dataset with date, incidence, contacts, and mobility |
 | `ch1_covariates.R` | Processes inputs for modelling: Mobility composite stream with trailing 7-day mean; both covariates z-scored |
 | `ch1_periods.R` | Defines periods based on lockdowns, tiered restrictions, relaxation etc. from OxCGRT. Descriptive, not used as covariate |
