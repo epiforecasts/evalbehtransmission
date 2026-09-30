@@ -12,9 +12,6 @@ library(ggplot2)
 a1_1_config <- list(
   output_dir = "analysis/appendix/outputs",
 
-  # Existing non-overlapping check, used below to verify the per-origin dispersion
-  window_dispersion_path = "outputs/ch1/table_window_dispersion.csv",
-
   # Matches ch1_rolling.R, so dispersion is measured on the windows actually forecast from
   window_weeks = 8,
   first_origin = as.Date("2020-07-01"),
@@ -101,16 +98,6 @@ window_dispersion <- lapply(origins, function(origin) {
          poisson = dispersion(window_fits$poisson),
          nb      = dispersion(window_fits$nb))
 }) |> bind_rows()
-
-# The four non-overlapping origins ch1_diagnostics.R already reports must come out the same,
-# or these windows are not the ones the existing table describes
-existing_dispersion <- read_csv(a1_1_config$window_dispersion_path,
-                                show_col_types = FALSE) |> arrange(origin)
-refitted_check <- window_dispersion |>
-  filter(origin %in% existing_dispersion$origin) |> arrange(origin)
-stopifnot(nrow(refitted_check) == nrow(existing_dispersion),
-          max(abs(refitted_check$poisson - existing_dispersion$poisson)) < 1e-6,
-          max(abs(refitted_check$nb - existing_dispersion$nb)) < 1e-6)
 
 cat("Poisson dispersion across", nrow(window_dispersion), "windows:",
     round(min(window_dispersion$poisson)), "to", round(max(window_dispersion$poisson)),

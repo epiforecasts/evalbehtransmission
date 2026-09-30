@@ -1,6 +1,4 @@
 # Appendix A.1.4: what s(t) absorbs, and residual autocorrelation from the full-period fits
-# The coefficient comparison reads data-processed/ch1_window_coefficients.csv, which
-# ch1_rolling.R already writes with both smooth settings, so no window is refitted here
 # Deviance explained is in the main body, so no table is repeated here
 
 source("analysis/ch1_gam.R")
@@ -10,7 +8,6 @@ library(ggplot2)
 ## Config ----------------------------------------------------------------------
 
 a1_4_config <- list(
-  coef_path  = "data-processed/ch1_window_coefficients.csv",
   output_dir = "analysis/appendix/outputs",
 
   lag_max = 28
@@ -73,33 +70,6 @@ p_fit <- ggplot(fitted_rt_frame, aes(x = date, y = Rt, colour = series)) +
 ggsave(file.path(a1_4_config$output_dir, "fig_a1_4a_smooth_absorption.png"),
        p_fit, width = 10, height = 4.5, dpi = 300, bg = "white")
 
-## Coefficient attenuation across the rolling windows --------------------------
-# Read rather than refitted, since ch1_rolling.R already fits every window both ways
-
-window_coefficients <- read_csv(a1_4_config$coef_path, show_col_types = FALSE) |>
-  filter(term %in% c("contacts", "mobility"), model == "combined") |>
-  select(origin, term, used_smooth, estimate) |>
-  tidyr::pivot_wider(names_from = used_smooth, values_from = estimate,
-                     names_prefix = "smooth_") |>
-  rename(without_smooth = smooth_FALSE, with_smooth = smooth_TRUE)
-
-# One row per origin per term, or the pivot has silently collapsed something
-stopifnot(nrow(window_coefficients) == 2 * n_distinct(window_coefficients$origin),
-          !anyNA(window_coefficients))
-
-smooth_attenuation <- window_coefficients |>
-  group_by(term) |>
-  summarise(n_origins             = n(),
-            median_without_smooth = median(without_smooth),
-            median_with_smooth    = median(with_smooth),
-            n_shrunk              = sum(abs(with_smooth) < abs(without_smooth)),
-            .groups = "drop") |>
-  mutate(median_ratio = median_with_smooth / median_without_smooth)
-
-cat("\n--- Combined-model coefficients across origins, with and without s(t) ---\n")
-print(as.data.frame(smooth_attenuation |>
-        mutate(across(where(is.double), \(x) round(x, 3)))), row.names = FALSE)
-
 ## Residual autocorrelation ----------------------------------------------------
 # Full-period fits, matching the ACF computed in ch1_diagnostics.R, which also asserts
 # that each model frame is contiguous before reading anything into the lags
@@ -135,8 +105,5 @@ p_acf <- ggplot(acf_frame, aes(x = lag, y = acf, colour = model)) +
 
 ggsave(file.path(a1_4_config$output_dir, "fig_a1_4b_residual_acf.png"),
        p_acf, width = 10, height = 4.5, dpi = 300, bg = "white")
-
-write_csv(smooth_attenuation,
-          file.path(a1_4_config$output_dir, "table_a1_4_smooth_attenuation.csv"))
 
 message("A.1.4 written to ", a1_4_config$output_dir)
