@@ -1,0 +1,224 @@
+---
+title: "Chapter 1 synthetic experiment: recovering covariate coefficients"
+format: html
+bibliography: references.bib
+csl: plos-computational-biology.csl
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(dplyr)
+library(ggplot2)
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+knitr::opts_knit$set(root.dir = "..") # Chapter 1 scripts use repo-root paths
+```
+
+```{r}
+#| label: source
+#| include: false
+
+source("synthetic/simulate_recovery.R")
+```
+
+## Main question
+
+::: {.callout-note appearance="minimal"}
+Does the chapter 1 renewal GAM recover $\beta_1$ without bias and with correct uncertainty? How does this change with and without $s(t)$?
+:::
+
+```{mermaid}
+flowchart LR
+  X["Behavioural covariate X_t"] --> R
+  C["Temporal trend c(t)"] --> R
+  R["True log R(t) = β₀ + β₁X_t + c(t)"] --> I
+  I["Renewal outbreak I_t<br/>with / without NB noise"] --> F
+  F["Fit 4 nested GAMs<br/>8-week windows, k ∈ {3, 5, 10}"] --> O
+  O["Compare with truth<br/>β̂₁ vs β₁ · log R̂(t) vs log R(t) · CRPS"]
+```
+
+Primary:
+
+- **Recovery.** Is $\hat{\beta}_1$ unbiased, and does the reported SE match the empirical SD of $\hat{\beta}_1$?
+- **False positives.** When $\beta_1 = 0$, how often does the 95% interval exclude 0?
+- **Flexibility of $s(t)$.** How much does $\hat{\beta}_1$ shrink towards 0 as $k$ increases, and does this depend on the form of $c(t)$?
+
+Secondary:
+
+- **$\log R(t)$.** Is the true $\log R(t)$ recovered overall, even when $\beta_1$ is not?
+- **Noise and coverage.** Does negative binomial observation noise change how much $s(t)$ absorbs, and which of fixed inputs, median incidence or fixed $\theta$ explains chapter 1's low forecast coverage?
+- **Window length.** How do recovery and forecasts change with 4, 8 and 12-week windows?
+- **Forecasts.** When $\beta_1 = 0$, does the $X_t$ model still beat the baseline on CRPS?
+
+## Background
+
+Chapter 1 fits a single-stage renewal GAM, with behavioural covariates as linear terms on $\log R(t)$ and $s(t)$ excluded from forecasting, which I chose based on similar deviance explained across models and difficulty extrapolating. Chapter 1 doesn't address what covariates add beyond the temporal variation $R(t)$ needs, and how including $s(t)$ affects coefficient estimates.
+
+## Simulating the truth
+
+### Behavioural covariates $X_t$
+
+We impose three different z-scored behavioural covariate time series, which may interact differently with $s(t)$ terms:
+
+1)  **Piecewise:** Constant in 14-day blocks, so each step in $X_t$ shifts $R(t)$. Simple, but a smooth $s(t)$ may approximate it well.
+2)  **Noisier:** Piecewise plus daily noise (SD 0.5, re-scored). Harder for $s(t)$ to mimic, so $\beta_1$ should be recovered.
+3)  **True Mobility:** The chapter 1 Google Mobility series[^1], with genuine trends and any concurvity with time.
+
+[^1]: Equal-weighted mean of four out-of-home categories following Nouvellet et al. [@nouvellet2021], but with a trailing rather than centred 7-day mean, and z-scored over the study period.
+
+```{r}
+#| label: fig-covariates
+
+# All three in one figure, 1 row, 3 columns
+```
+
+### Reproduction number $R(t)$
+
+Simulate true $R(t)$ using $\log R(t) = \beta_0 + \beta_1 X_t + c(t)$, with:
+
+- $\beta_1 \in \{0, 0.25\}$, where 0 gives the false positive rate.
+- $\beta_0 = -0.05$. As $X_t$ is z-scored, this is $\log R(t)$ at average study-period behaviour rather than $\log R_0$, and setting it just under 0 means the outbreak neither grows nor dies out.
+
+We may add three forms of $c(t)$ into the true $\log R(t)$ to reflect different residual temporal variation possibilities:
+
+- **None.** $c(t) = 0$, so all variation in $R(t)$ comes from $X_t$.
+- **Periodic.** $c(t) = a \sin(2\pi t / P)$ with $a = 0.2$ (±20% on $R(t)$) and $P = 56$ days (one cycle per window). This aims to reflect immunity or variant changes, which $s(t)$ can capture but $X_t$ cannot.
+- **Concurvity.** $c(t) = a \tilde{X}_t$, a smoothed $X_t$. Part of $R(t)$ then moves with a smooth trend in $X_t$, which both $X_t$ and $s(t)$ can explain, so the GAM cannot cleanly split it between them. This should affect $\hat{\beta}_1$.
+
+### Simulating an outbreak
+
+Simulate using the renewal formula with and without negative binomial observation noise:
+
+- **Deterministic.** $I_t = R(t) \Lambda_t$.
+- **Noisy.** $I_t \sim \text{NegBin}(R(t) \Lambda_t, \theta)$ with $\theta = 10$. The SD is about $\mu/\sqrt{\theta}$, so daily counts vary by about 30%.
+
+## Models compared
+
+Four nested models, fitted by REML over chapter 1's 8-week windows, with $k \in \{3, 5, 10\}$ in `s(t, k = k)`. Window length matters as how much $s(t)$ absorbs depends on $k$ relative to it.
+
+- Baseline: intercept + offset
+- $+X_t$: behavioural covariate
+- $+s(t)$: smooth term, without $X_t$
+- $+X_t + s(t)$: both
+
+### Sampling $\hat{\beta}_1$ over many noisy outbreaks
+
+- **Design.** For each setting, simulate a burn-in (so $\Lambda_t$ has a full generation interval) then one 8-week window, fit the four models once, and repeat over 100 NB noise draws.
+- **Outputs.** Bias, empirical SD vs mean reported SE, coverage and the false positive rate at $\beta_1 = 0$.
+- **Deterministic outbreaks.** One draw is sufficient, and shows whether $\beta_1$ is identifiable with no noise.
+
+### Rolling origin: chapter 1's figures with a known truth
+
+Explores chapter 1's framework when the truth is known, since where the training window sits (pandemic period, behaviour during that window) matters.
+
+- **Design.** Simulate over the real study period with the real mobility series, then fit and forecast at chapter 1's 27 weekly origins with $k = 5$.
+- **Outputs.** With a constant true $\beta_1$, plotting $\hat{\beta}_1$ against origin shows how far estimates deviate from estimation alone.
+- **Summarising.** Across draws within each origin, then across origins. Neighbouring origins share 7 of 8 weeks, so expect them to be highly correlated.
+
+## Worked example
+
+Example illustration of the Piecewise $X_t$ series with $\beta_1 = 0.25$ and $c(t) = 0$, with no noise.
+
+```{r}
+#| label: fig-example
+
+# Three stacked panels:
+# True log R(t) and X_t on the same plot
+# Simulated incidence curve
+# True log R(t) against fitted log R(t), and true beta1 against beta1_hat, for each of the four models
+```
+
+## Results
+
+### Coefficient recovery
+
+Compare true $\log R(t)$ against fitted $\log \hat{R}(t)$, and true $\beta_0$ against $\hat{\beta}_0$ where useful, since top-level $R(t)$ matters as much as its individual components.
+
+```{r}
+#| label: tbl-recovery
+#| eval: false
+
+# recovery is read from the .rds saved by simulate_recovery.R
+# sd: how much β̂₁ actually varies across simulated outbreaks with the same true β₁
+# mean_se: mgcv reported standard error for β̂₁, averaged across simulated outbreaks
+recovery |>
+  group_by(covariate_type, beta1, temporal_trend, noise, with_covariate, use_smooth, smooth_k) |>
+  summarise(mean_estimate = mean(estimate),
+            bias          = mean(estimate - beta1),
+            sd            = sd(estimate),
+            mean_se       = mean(se),
+            coverage      = mean(covers),
+            .groups = "drop")
+
+```
+
+```{r}
+#| label: fig-beta1-recovery
+
+```
+
+### Flexibility of $s(t)$
+
+```{r}
+#| label: fig-beta1-shrinkage
+
+# May compare whether β̂₁ shrinks towards zero as s(t) flexibility increases
+```
+
+### Diagnostics
+
+Check each fit converged, and measure concurvity directly from the input covariates.
+
+- `gam.check` for convergence and effective $k$
+- Concurvity, full and pairwise, flagging anything \> 0.8
+- Residual ACF with and without $s(t)$
+
+```{r}
+#| label: tbl-concurvity
+
+```
+
+### Noise and coverage
+
+Compare $\hat{\theta}$ and coverage with and without NegBin noise.
+
+### Forecasts
+
+- Compare CRPS relative to the baseline model.
+- Forecast $s(t)$ models by holding $s(t_{\max})$ fixed (see Notes).
+
+```{r}
+#| label: tbl-forecast
+
+```
+
+## Relevance to Chapter 1
+
+- Drivers beyond contacts and mobility, such as mask-wearing, contact duration and immunity, change the secondary attack rate, so coefficients need careful interpretation (explains model performance?)
+- Whether $s(t)$ stays a diagnostic, showing how much temporal variation can be captured, or is included in fitting and forecasting.
+
+## Next steps
+
+- AR(1) or random-walk process noise on $\log R(t)$, as a further form of $c(t)$
+- Time-varying $\beta_1(t)$ over rolling windows
+- How does in-sample fit compare to forecast performance, with and without $s(t)$? For example, deviance explained against CRPS, or in-sample uncertainty against forecast coverage
+
+## Notes
+
+### Relevant papers
+
+- **Mellor et al. flu admissions** [@mellor2023] - use only smooths of time and forecast by extrapolating the smooth, which assumes a constant growth rate past $t_{\max}$. Forecast skill depends on smooth's flexibility, chosen by out-of-sample score as 1 basis per 5 days over a 9-week training window.
+- **Camacho et al. cholera** [@camacho2018] - renewal equation fitted as Poisson regression with log total infectiousness offset. Covariates enter $\log R(t)$ including penalised lagged rainfall term (a DLNM). No time smooth, and report coefficients as fold-changes in $R(t)$.
+- **Ramsay et al. concurvity** [@ramsay2003] - when a covariate shares trend with a smooth of time, GAM standard errors are too small. In their simulation the empirical SD of the estimates was 16-23% larger than the reported SE, giving an 18% type I error at the 5% level. Flag concern when the correlation between a covariate and its fit on the other smooth terms exceeds 0.5.
+
+### Points to consider
+
+- **Timing and shape.** Do the timing and shape of behavioural covariates explain something a generic spline cannot? Where covariate trajectories deviate sharply from smooth trends, capturing those noisy or sudden changes may improve forecasts beyond what a smooth trend can.
+- **Residual autocorrelation.** How does residual autocorrelation change with and without $s(t)$? If adding $X_t$ removes much of it, behavioural covariates may be explaining temporal trends rather than leaving them to $s(t)$.
+- **Wide intervals.** A wide interval around $\hat{\beta}_1$ does not necessarily imply concurvity, as the covariate may barely move in that window.
+- **Extrapolating $s(t)$.** A smooth fitted over the training window shouldn't be extrapolated to $s(t_{\max} + h)$. Because of how basis functions behave past the data, this can give extreme (even negative) $s(t)$ values, and hence extreme $R(t)$, which propagate through the renewal forecast. Instead, sample from the posterior of $s(t)$ at $t_{\max}$ and carry it forward, the $\log R(t)$ analogue of Mellor et al.'s constant growth rate.
+- **Smoothed incidence.** inc2prev incidence, and so its $R(t)$, is smoothed, so a smooth $s(t)$ may capture $R(t)$ very well by design. If noisy mobility or contact data could explain rapid changes in $R(t)$, that smoothing limits how far we can see the effect of noisy behaviour. In simulation, a noisy $X_t$ gives a noisy $R(t)$, where the smooth-only model should struggle without overfitting while the $X_t$ model captures it, since we know how $R(t)$ relates to behaviour. In chapter 1, behaviour can be noisy but $R(t)$ and incidence are smoothed, so this may need the inc2prev posterior uncertainty rather than individual noisy trajectories.

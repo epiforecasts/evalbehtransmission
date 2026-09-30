@@ -1,49 +1,46 @@
 # Producing synthetic outbreaks to check whether s(t) absorbs signal belonging to covariates
 # Addresses issue #55
-# This script defines functions only, which are called from synthetic_check.qmd
+# This script defines functions only, which are called from ch1_synthetic_experiment.qmd
 # Daily time step throughout
+# Paths are relative to the repo root, as in Chapter 1
 
-library(mgcv)
-library(dplyr)
-library(EpiEstim)
-
-source("../R/compute_lambda.R") # Retrieve function to compute total infectiousness
+source("analysis/ch1_gam.R") # GI weights, renewal formula, fit_renewal_gam(), fitted_rt(), plus mgcv and dplyr
 
 ## Config ----------------------------------------------------------------------
 
 synthetic_config <- list(
 
-  n_days = 180, # length of simulated outbreak
+  n_days = 180, # length of simulated outbreak, to revise as replicates need only a burn-in plus one 8-week window
 
   seed_days = 7, # days of constant incidence before the renewal step takes over
   seed_size = 50,
 
   # log(Rt) intercept, determining whether outbreak grows or shrinks
-  # Covariates are z-scored, so 0 puts Rt at 1 when the covariate sits at its mean
-  beta0 = 0,
+  # Covariates are z-scored, so this is log(Rt) at average study-period behaviour, not log(R0)
+  # Slightly below 0 keeps the real mobility outbreak from growing throughout
+  beta0 = -0.05,
 
-  # Initially set coefficient to 0 to check null behaviour (false positives)
-  beta1 = 0,
+  # 0 checks null behaviour (false positives)
+  beta1 = c(0, 0.25),
 
   # mgcv nb() parameterisation, variance = mu + mu^2 / theta
-  # Smaller theta means more overdispersion, 2 initially limits noise
-  theta = 2,
+  # Smaller theta means more overdispersion
+  # For large counts the SD is about mu / sqrt(theta), so 10 gives about 30% day-to-day noise
+  theta = 10, # held constant for now
 
-  smooth_k = 20, # basis dimension for s(t)
+  smooth_k = c(3, 5, 10), # basis dimension for s(t), Chapter 1 windows use 5
 
-  # Matches ch1_gam_config
-  gi_mean = 5.5,
-  gi_sd   = 2.1,
-  gi_max  = 21
+  covariate_noise_sd = 0.5, # noise added to the piecewise series
+
+  # c(t) scale, and the period of the periodic form, one cycle per 8-week window
+  trend_amplitude = 0.2,
+  trend_period = 56,
+
+  n_draws = 100, # 1000 needed for final results
+  seed = 42,
+
+  start_date = as.Date("2020-04-01") # arbitrary, fit_renewal_gam() needs a date column
 )
-
-## Generation interval ---------------------------------------------------------
-
-make_gi_weights <- function(config = synthetic_config) {
-  si <- discr_si(k = 0:config$gi_max, mu = config$gi_mean, sigma = config$gi_sd)
-  si <- si / sum(si)
-  si[-1] # drops day 0, so I_t does not enter its own Lambda_t
-}
 
 ## Covariates ------------------------------------------------------------------
 
@@ -56,10 +53,28 @@ make_piecewise_covariate <- function(n_days = synthetic_config$n_days, block_day
   (x - mean(x)) / sd(x)
 }
 
-# make the covariate fluctuate more, so that s(t) cannot immediately approximate it
-make_rough_covariate <- function(n_days = synthetic_config$n_days, block_days = 3) {
-  x <- rep(rnorm(ceiling(n_days / block_days)), each = block_days)[seq_len(n_days)]
+# Piecewise series plus noise, so the two differ only by the noise
+# Fluctuates more, so s(t) cannot immediately approximate it
+make_noisy_covariate <- function(piecewise = make_piecewise_covariate(),
+                                 noise_sd = synthetic_config$covariate_noise_sd,
+                                 seed = synthetic_config$seed) {
+  set.seed(seed)
+  x <- piecewise + rnorm(length(piecewise), sd = noise_sd)
   (x - mean(x)) / sd(x)
+}
+
+# z-scored real Chapter 1 series
+load_real_covariate <- function(stream = "mobility", path = ch1_gam_config$input_path) {
+  dat <- readr::read_csv(path, show_col_types = FALSE)
+  dat[[stream]][!is.na(dat[[stream]])]
+}
+
+## Temporal trend c(t) ----------------------------------------------------------
+
+# To make: c(t) for each form in the settings grid
+# none = 0, periodic = a * sin(2 * pi * t / P), concurvity = a * smoothed covariate
+make_temporal_trend <- function() {
+
 }
 
 ## Simulation ------------------------------------------------------------------
@@ -67,14 +82,16 @@ make_rough_covariate <- function(n_days = synthetic_config$n_days, block_days = 
 # simulate the outbreak using the renewal formula
 # feed each Lambda_t into the next day, to preserve autocorrelation and accumulate variation
 # noise = FALSE returns expected counts, noise = TRUE draws them from nb(theta)
+# temporal_trend is c(t), the unmeasured temporal driver, 0 by default
 simulate_outbreak <- function(covariate,
-                              beta1 = synthetic_config$beta1,
+                              beta1,
+                              temporal_trend = 0,
                               noise = TRUE,
                               config = synthetic_config,
-                              gi_weights = make_gi_weights(config)) {
+                              gi_weights = make_gi_weights()) {
 
   n_days <- length(covariate)
-  rt <- exp(config$beta0 + beta1 * covariate)
+  rt <- exp(config$beta0 + beta1 * covariate + temporal_trend)
 
   incidence <- numeric(n_days)
   incidence[seq_len(config$seed_days)] <- config$seed_size
@@ -87,28 +104,8 @@ simulate_outbreak <- function(covariate,
     incidence[t] <- if (noise) rnbinom(1, mu = expected, size = config$theta) else round(expected)
   }
 
-  tibble(t = seq_len(n_days), covariate = covariate, rt = rt, incidence = incidence)
-}
-
-## Fitting ---------------------------------------------------------------------
-
-# Fits log(Rt) = beta0 [+ s(t, k)] + beta1 * X, with log_Lambda as a fixed offset
-# sim is one outbreak from simulate_outbreak, holding t, covariate, rt and incidence
-fit_synthetic_renewal <- function(sim,
-                                  use_smooth = FALSE,
-                                  config = synthetic_config,
-                                  gi_weights = make_gi_weights(config)) {
-
-  frame <- sim |>
-    mutate(Lambda_t   = compute_lambda(incidence, gi_weights),
-           log_Lambda = log(Lambda_t)) |>
-    filter(is.finite(log_Lambda))
-
-  smooth <- if (use_smooth) sprintf("s(t, k = %d)", config$smooth_k)
-  model_formula <- reformulate(c("1", smooth, "covariate", "offset(log_Lambda)"),
-                               response = "incidence")
-
-  gam(model_formula, family = nb(), data = frame, method = "REML")
+  tibble(date = config$start_date + seq_len(n_days) - 1,
+         covariate = covariate, temporal_trend = temporal_trend, rt = rt, incidence = incidence)
 }
 
 ## Results ---------------------------------------------------------------------
@@ -116,7 +113,8 @@ fit_synthetic_renewal <- function(sim,
 # One row per fit: one model on one simulated outbreak
 # Estimate, standard error, Wald interval, whether it covers beta1
 # Also the edf of s(t)
-summarise_beta1_recovery <- function(fit, beta1 = synthetic_config$beta1) {
+# No default beta1, as each settings row passes its own true value
+summarise_beta1_recovery <- function(fit, beta1) {
 
   coefficients <- summary(fit)$p.table
   estimate <- coefficients["covariate", "Estimate"]
@@ -130,45 +128,44 @@ summarise_beta1_recovery <- function(fit, beta1 = synthetic_config$beta1) {
          edf      = if (length(fit$smooth)) sum(summary(fit)$edf) else NA_real_)
 }
 
-# Repeats simulate-and-fit from the same known beta1, stacking the rows above
-# Varies covariate type, s(t) on/off and noise on/off
-replicate_beta1_recovery <- function(n_draws = 100,
-                                     beta1 = synthetic_config$beta1,
-                                     config = synthetic_config) {
+## Settings --------------------------------------------------------------------
 
-  gi_weights <- make_gi_weights(config)
+# Simulated truth (covariate, beta1, c(t), noise) crossed with fitted model (X_t, s(t), k)
+# Deterministic outbreaks only require one draw
+synthetic_settings <- expand.grid(covariate_type = c("piecewise", "noisy", "real"),
+                                  beta1          = synthetic_config$beta1,
+                                  temporal_trend = c("none", "periodic", "concurvity"),
+                                  noise          = c(FALSE, TRUE),
+                                  with_covariate = c(FALSE, TRUE),
+                                  use_smooth     = c(FALSE, TRUE),
+                                  smooth_k       = synthetic_config$smooth_k,
+                                  stringsAsFactors = FALSE)
 
-  settings <- expand.grid(covariate_type = c("piecewise", "rough"),
-                          use_smooth     = c(FALSE, TRUE),
-                          noise          = c(FALSE, TRUE),
-                          stringsAsFactors = FALSE)
+## Replicates ------------------------------------------------------------------
 
-  
-  lapply(seq_len(nrow(settings)), function(setting_row) {
-    setting <- settings[setting_row, ]
+# To make: for each settings row, simulate a burn-in plus one 8-week window,
+# fit the four models once, and repeat over n_draws noise draws
+run_synthetic_replicates <- function() {
 
-    lapply(seq_len(n_draws), function(draw) {
-      covariate <- if (setting$covariate_type == "piecewise") {
-        make_piecewise_covariate(config$n_days)
-      } else {
-        make_rough_covariate(config$n_days)
-      }
-
-      sim <- simulate_outbreak(covariate, beta1, setting$noise, config, gi_weights)
-      fit <- fit_synthetic_renewal(sim, setting$use_smooth, config, gi_weights)
-
-      summarise_beta1_recovery(fit, beta1) |>
-        mutate(covariate_type = setting$covariate_type,
-               use_smooth     = setting$use_smooth,
-               noise          = setting$noise,
-               draw           = draw)
-    }) |> bind_rows()
-  }) |> bind_rows()
 }
 
-# Splits fitted log Rt per day into intercept, covariate effect and s(t)
-# Returns the true covariate effect alongside them, as a per-day series
+## Rolling windows -------------------------------------------------------------
+
+# Adapted from run_window() in ch1_rolling.R
+# Fits the four nested models on each window of one simulated outbreak
+# Forecasts s(t) models by holding s(t_max) fixed, i.e. constant R(t)
+# The log R(t) analogue of Mellor et al.'s constant growth rate
+run_synthetic_windows <- function() {
+
+}
+
+# True log R(t) against fitted log R(t) per day, fitted from fitted_rt() in ch1_gam.R
+# Optionally split into intercept, covariate effect and s(t)
 # Terms are centred by mgcv, so s(t) carries variation and not level
 log_rt_components <- function() {
 
 }
+
+## Run -------------------------------------------------------------------------
+
+# To add: run replicates and rolling windows, and save results as .rds for the qmd to read
