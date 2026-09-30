@@ -200,6 +200,9 @@ Compare $\hat{\theta}$ and coverage with and without NegBin noise.
 
 - Drivers beyond contacts and mobility, such as mask-wearing, contact duration and immunity, change the secondary attack rate, so coefficients need careful interpretation (explains model performance?)
 - Whether $s(t)$ stays a diagnostic, showing how much temporal variation can be captured, or is included in fitting and forecasting.
+- How adding $s(t)$ affects $\hat{\beta}_1$.
+- Whether $\hat{\beta}_1$ is biased when $s(t)$ is excluded, or $X_t$ acts as a proxy for other temporal variation. Can models still recover the behavioural contribution when an additional immunity-like $c(t)$ is present?
+- What behavioural covariates add beyond the variation $R(t)$ needs, and what they explain that a smooth term cannot.
 
 ## Next steps
 
