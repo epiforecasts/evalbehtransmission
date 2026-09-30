@@ -4,8 +4,12 @@
 #   - mean contacts per participant per day, as a daily trailing mean
 #
 # Contacts are aggregated across all settings, and matrices are symmetrised against
-# England population denominators. No susceptibility scaling is applied, so the
+# UK population denominators. No susceptibility scaling is applied, so the
 # eigenvalue is rho(C) rather than rho(K)
+#
+# Public CoMix has no region, so the sample is UK-wide and is weighted to the UK population
+# The outcome (inc2prev) is England only, so covariates and outcome currently differ in geography
+# Private CoMix adds region, allowing England-only or per-nation weighting (see #54)
 
 library(socialmixr)
 library(data.table)
@@ -41,28 +45,47 @@ contact_cap <- 50
 # Two-week pooling of the alternating panels, trailing rather than centred
 contact_window_days <- 14
 
-# Children join from May 2020 and their share of respondents then swings, so a plain
-# sample mean moves with recruitment rather than behaviour
-child_age_bands <- c("Under 1", "0-4", "5-11", "12-17")
+# CoMix participant age bands, as recorded, and their lower limits
+# Children join from May 2020 and their share of respondents then swings, so the mean
+# is weighted to the population rather than taken over whoever responded
+participant_age_bands <- c("0-4", "5-11", "12-17", "18-29", "30-39", "40-49",
+                           "50-59", "60-69", "70-120")
+participant_age_lower <- c(0, 5, 12, 18, 30, 40, 50, 60, 70)
+child_age_bands       <- c("0-4", "5-11", "12-17")
 
-# UK under-18 share in 2020, from the UN WPP 2017 median projection
-# https://cran.r-project.org/package=wpp2017
-# 15-19 is the only band crossing 18, so three of its five years count as children
-child_population_share <- local({
-  utils::data("popFprojMed", "popMprojMed", package = "wpp2017")
-  pop   <- subset(rbind(popFprojMed, popMprojMed), name == "United Kingdom")
-  lower <- as.integer(sub("[-+].*$", "", pop$age))
-  sum(pop$`2020` * ifelse(lower < 15, 1, ifelse(lower == 15, 0.6, 0))) / sum(pop$`2020`)
-})
+# UK population by single year of age and sex, ONS mid-2020 estimates
+# The file inc2prev uses, read as in its data-raw/update_cis.R but from the sex-specific sheets
+load_uk_population <- function(use_remote) {
+  pop_file <- inc2prev_path("data-raw/uk_pop.xls", use_remote)
+  if (use_remote) { # readxl cannot read from a URL
+    local_file <- tempfile(fileext = ".xls")
+    download.file(pop_file, local_file, mode = "wb", quiet = TRUE)
+    pop_file <- local_file
+  }
+  rbindlist(lapply(c(M = "Males", F = "Females"), function(sex) {
+    sheet <- readxl::read_excel(pop_file, sheet = paste("MYE2 -", sex), skip = 7)
+    uk    <- unlist(sheet[sheet$Name == "UNITED KINGDOM", c(as.character(0:89), "90+")])
+    data.table(age = 0:90, population = uk) # 90 stands for 90+
+  }), idcol = "sex")
+}
+
+uk_population <- load_uk_population(use_remote)
+
+# Population share of each participant age band x sex cell, the post-stratification weights
+cell_population <- uk_population[
+  , .(population = sum(population)),
+  by = .(part_band = participant_age_bands[findInterval(age, participant_age_lower)], sex)
+][, share := population / sum(population)]
 
 # Age limits: align with ONS CIS antibody data bins and CoMix ranges
 age_limits <- c(2, 11, 16, 25, 35, 50, 70)
-# Survey population: England 2020, from inc2prev populations.csv, aligned to age_limits above.
+# Survey population on age_limits from the same UK table, dropping ages below the first limit
 # Do not use survey_pop = "United Kingdom" — socialmixr's bundled WPP data only goes to 2015
 # and uses 5-year bands that don't align to age_limits, causing interpolation artefacts.
-survey_pop <- read.csv(inc2prev_path("data-processed/populations.csv", use_remote)) |>
-  dplyr::filter(level == "age_school", geography == "England") |>
-  dplyr::select(lower.age.limit = lower_age_limit, population)
+survey_pop <- uk_population[
+  , .(population = sum(population)),
+  by = .(lower.age.limit = c(NA, age_limits)[findInterval(age, age_limits) + 1])
+][!is.na(lower.age.limit)][order(lower.age.limit)]
 
 
 ## Load and merge data ---------------------------------------------------------
@@ -157,8 +180,17 @@ compute_round_matrices <- function(data_list, age_limits, survey_pop) {
 
 ## Mean contacts per participant per day ---------------------------------------
 # Follows the CMMID CoMix weekly reports: truncate per participant per day, then take the
-# unweighted arithmetic mean over participants, pooled across two weeks so both panels contribute
+# mean over participants, pooled across two weeks so both panels contribute
 # Their window is centred on a survey round, this one is trailing to avoid future leakage
+# The mean is post-stratified by age band x sex to the UK population, as Gimma et al. (2022)
+# weight by age and gender
+
+# Population-weighted mean over the cells observed in a window
+weighted_cell_mean <- function(mean_contacts, share) {
+  observed <- !is.na(mean_contacts)
+  if (!any(observed)) return(NA_real_)
+  sum(mean_contacts[observed] * share[observed]) / sum(share[observed])
+}
 
 compute_mean_contacts <- function(data_list, window_length = contact_window_days,
                                   cap = contact_cap) {
@@ -169,39 +201,56 @@ compute_mean_contacts <- function(data_list, window_length = contact_window_days
   responses <- data.table(
     part_id      = data_list$participants$part_id,
     part_age     = data_list$participants$part_age,
+    sex          = data_list$participants$part_gender,
     contact_date = as.Date(data_list$participants$sday_id, format = "%Y.%m.%d") - 1
   )[!is.na(contact_date)]
+
+  # Under 1 joins 0-4 and 18-19 joins 18-29, while other bands crossing these are dropped
+  responses[, part_band := fcase(part_age == "Under 1", "0-4",
+                                 part_age == "18-19",   "18-29",
+                                 part_age %in% participant_age_bands, part_age,
+                                 default = NA_character_)]
+
+  # Missing or unmappable ages, and other or missing gender, have no population to weight against
+  n_missing_age  <- responses[is.na(part_age), .N]
+  n_unmapped_age <- responses[!is.na(part_age) & is.na(part_band), .N]
+  n_no_sex       <- responses[!is.na(part_band) & !sex %in% c("M", "F"), .N]
+  responses <- responses[!is.na(part_band) & sex %in% c("M", "F")]
 
   # Participants reporting nothing are absent from the contact table and count as zero
   counts <- data_list$contacts[, .(n_contacts = pmin(.N, cap)), by = part_id]
   responses <- merge(responses, counts, by = "part_id", all.x = TRUE)
   responses[is.na(n_contacts), n_contacts := 0]
-  responses[, is_adult := !part_age %in% child_age_bands]
 
   days <- seq(min(responses$contact_date), max(responses$contact_date), by = "day")
 
-  daily_means <- rbindlist(lapply(days, function(day) {
-    window <- responses[contact_date > day - window_length & contact_date <= day]
-    data.table(
-      date                 = day,
-      mean_contacts_adult  = if (any(window$is_adult))  mean(window$n_contacts[window$is_adult])  else NA_real_,
-      mean_contacts_child  = if (any(!window$is_adult)) mean(window$n_contacts[!window$is_adult]) else NA_real_,
-      mean_contacts_sample = if (nrow(window)) mean(window$n_contacts) else NA_real_,
-      n_responses          = nrow(window)
-    )
+  # Mean per age band x sex cell over each trailing window, one row per day and cell
+  cell_means <- rbindlist(lapply(days, function(day) {
+    responses[contact_date > day - window_length & contact_date <= day,
+              .(mean_contacts = mean(n_contacts), n = .N), by = .(part_band, sex)][, date := day]
   }))
+  cell_means <- cell_means[CJ(date = days, part_band = participant_age_bands, sex = c("M", "F")),
+                           on = .(date, part_band, sex)]
+  cell_means <- merge(cell_means, cell_population, by = c("part_band", "sex"))
+  cell_means[, is_child := part_band %in% child_age_bands]
+  setorder(cell_means, part_band, sex, date)
 
-  # Four days in late July fall between the child panels with no children surveyed, so the
-  # child mean is carried forward. The backward fill covers the day before recruitment starts
-  child_filled <- nafill(nafill(daily_means$mean_contacts_child, "locf"), "nocb")
+  # Children enter CoMix on 7 May 2020, so earlier days take each child cell's first mean
+  # No filled day enters a forecast window, and schools were closed throughout (see #53)
+  # Days between child panels in late July carry each child cell's mean forward
+  cell_means[, mean_filled := if (is_child[1]) nafill(nafill(mean_contacts, "locf"), "nocb")
+                              else mean_contacts,
+             by = .(part_band, sex)]
 
-  # Adults and children averaged separately, recombined at fixed population shares, so the
-  # series tracks behaviour rather than recruitment
-  daily_means[, mean_contacts_standardised :=
-                (1 - child_population_share) * mean_contacts_adult +
-                     child_population_share  * child_filled]
-
-  setcolorder(daily_means, c("date", "mean_contacts_standardised"))[]
+  # One population-weighted mean over all cells, so the series tracks behaviour rather than
+  # recruitment. Adult, child (before filling) and unweighted sample means are kept for comparison
+  cell_means[, .(
+    mean_contacts_standardised = weighted_cell_mean(mean_filled, share),
+    mean_contacts_adult        = weighted_cell_mean(mean_contacts[!is_child], share[!is_child]),
+    mean_contacts_child        = weighted_cell_mean(mean_contacts[is_child],  share[is_child]),
+    mean_contacts_sample       = sum(mean_contacts * n, na.rm = TRUE) / sum(n, na.rm = TRUE),
+    n_responses                = sum(n, na.rm = TRUE)
+  ), keyby = date]
 }
 
 
