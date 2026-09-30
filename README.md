@@ -5,10 +5,12 @@ Evaluation of nowcasting and forecasting using behavioural data including CoMix 
 
 - **Google COVID-19 Community Mobility Reports**: Google LLC. https://www.google.com/covid19/mobility/
 - **CoMix social contact data (UK)**: https://zenodo.org/records/13684044
+- **inc2prev** (incidence, R(t) and modelled positivity for England, fitted to the ONS COVID-19 Infection Survey): https://github.com/epiforecasts/inc2prev
+- **OxCGRT** (policy stringency, used for period definitions only): https://github.com/OxCGRT/covid-policy-dataset
 
 ## Chapter 1
 
-Fits a renewal-equation GAM to England infection incidence and tests whether CoMix contacts or Google Mobility improve 1-4 week forecasts. Four models are compared: baseline, contacts, mobility, combined. Negative binomial used with April 2020 to January 2021 study window (pre-vaccine).
+Fits a renewal-equation GAM to England infection incidence and tests whether CoMix contacts or Google Mobility improve 1-4 week forecasts. Four models are compared: baseline, contacts, mobility, combined. Negative binomial used with April 2020 to January 2021 study window (pre-mass-vaccination).
 
 Run script in this order, or use `analysis/run_pipeline.R`
 
@@ -31,9 +33,29 @@ Run script in this order, or use `analysis/run_pipeline.R`
 
 Data goes to `data-processed/`, tables and figures to `outputs/ch1/`
 
+### Other scripts
+
+Not part of the pipeline:
+
+| Script | Status |
+|---|---|
+| `eda.R` | Early exploration, superseded by `ch1_descriptive.R` |
+| `model_rtglm.R`, `model_rtgam.R` | Pre-pipeline GLM/GAM forecasts that `ch1_gam.R` and `ch1_rolling.R` were built from (#48) |
+| `process_ons.R` | Reads a local copy of inc2prev estimates, superseded by `ch1_data.R` reading inc2prev remotely |
+| `age_incidence.R` | Age-stratified prevalence and incidence plots from inc2prev |
+| `publication_tables.R` | Renders score tables from `outputs/ch1/` as Word tables for the report |
+| `ch1_ccf.R` | Stub for cross-correlation by period (#12) |
+
+`stashed/` holds earlier experiments (mvgam, forecast comparisons), kept for reference.
+
 ## Running
 
+```r
 renv::restore()
+```
+
+```sh
 Rscript analysis/run_pipeline.R
+```
 
 Everything is fetched remotely, so a fresh clone needs no local data. Each processing script has a `use_remote` toggle for working from local copies. `process_comix.R` downloads ~150MB and takes a few minutes potentially. After that, everything runs within a couple of minutes.
