@@ -1,7 +1,7 @@
 # Appendix A.1.1: residuals from the incidence-only baseline under each observation family
 # Same figure as outputs/ch1/family_residuals.png, which covers the combined model, but
-# fitted on the baseline, which is what the A.1.1 text refers to
-# Dispersion ratios and AIC are already in outputs/ch1/table_family_comparison.csv
+# fitted on the baseline
+# This script refits the baseline, as the Chapter 1 pipeline saves no residuals and dispersion at four origins only
 
 source("analysis/ch1_gam.R")
 
@@ -28,29 +28,30 @@ make_family <- function(family_name) {
 
 ## Fit the baseline under each family ------------------------------------------
 
+# Daily incidence and covariates from the Chapter 1 pipeline
 dat <- read_csv(ch1_gam_config$input_path, show_col_types = FALSE)
 
 # Offset-only, so the only difference between the two fits is the variance assumption
-baseline <- lapply(c(poisson = "poisson", nb = "nb"), function(family_name) {
+baseline_fits <- lapply(c(poisson = "poisson", nb = "nb"), function(family_name) {
   fit_renewal_gam(dat, ch1_models$baseline, family = make_family(family_name))
 })
 
-# Both families must use the same rows, or the two panels are not comparable
-stopifnot(identical(baseline$poisson$model_data$date, baseline$nb$model_data$date))
+# Both families must use the same rows for comparability
+stopifnot(identical(baseline_fits$poisson$model_data$date, baseline_fits$nb$model_data$date))
 
-cat("Baseline fitted on", nrow(baseline$poisson$model_data), "days,",
-    format(min(baseline$poisson$model_data$date)), "to",
-    format(max(baseline$poisson$model_data$date)), "\n")
+cat("Baseline fitted on", nrow(baseline_fits$poisson$model_data), "days,",
+    format(min(baseline_fits$poisson$model_data$date)), "to",
+    format(max(baseline_fits$poisson$model_data$date)), "\n")
 
 ## Residuals -------------------------------------------------------------------
 
-residual_frame <- lapply(names(baseline), function(family_name) {
-  tibble(date     = baseline[[family_name]]$model_data$date,
-         residual = residuals(baseline[[family_name]]$fit, type = "deviance"),
+# Dataframe of residuals by date and observation family
+residual_frame <- lapply(names(baseline_fits), function(family_name) {
+  tibble(date     = baseline_fits[[family_name]]$model_data$date,
+         residual = residuals(baseline_fits[[family_name]]$fit, type = "deviance"),
          family   = family_name)
 }) |> bind_rows() |>
-  # Poisson first, so the panel showing the problem precedes the one showing the fix
-  mutate(family = factor(family, levels = c("poisson", "nb"),
+  mutate(family = factor(family, levels = c("poisson", "nb"), # Poisson first (more problematic)
                          labels = c("Poisson", "Negative binomial")))
 
 residual_range <- residual_frame |>
@@ -61,8 +62,8 @@ cat("\n--- Deviance residual range by family ---\n")
 print(as.data.frame(residual_range |>
         mutate(across(where(is.numeric), \(x) round(x, 1)))), row.names = FALSE)
 
-# Free y, since the Poisson residuals sit an order of magnitude wider
-p_family <- ggplot(residual_frame, aes(x = date, y = residual)) +
+# Plot on free_y scale given high difference in ranges between families
+p_residuals <- ggplot(residual_frame, aes(x = date, y = residual)) +
   geom_hline(yintercept = 0, colour = "grey50") +
   geom_point(size = 0.4, alpha = 0.6) +
   facet_wrap(~family, ncol = 1, scales = "free_y") +
@@ -72,15 +73,18 @@ p_family <- ggplot(residual_frame, aes(x = date, y = residual)) +
        x = NULL, y = "Deviance residual") +
   theme_minimal()
 
-ggsave(file.path(a1_1_config$output_dir, "fig_a1_1_family_residuals.png"), p_family,
+ggsave(file.path(a1_1_config$output_dir, "fig_a1_1_family_residuals.png"), p_residuals,
        width = 10, height = 5, dpi = 300, bg = "white")
 
 ## Dispersion by training window -----------------------------------------------
-# The fit above spans the whole period, so it absorbs non-stationarity no training window
-# ever sees. Refitting the baseline on each rolling window shows the same result holds
+# High residuals in the above plot may be a symptom of fitting one model across the whole
+# study period. A model learning an average relationship may perform poorly in periods that
+# deviate from it, rather than the issue being the Poisson assumption
+# Refitting on each rolling window shows whether Poisson unsuitability holds locally too
 
 # Pearson chi-square over residual degrees of freedom, as in ch1_diagnostics.R
-# One indicates the family's variance assumption matches the data
+# A value of one indicates the family's variance assumption matches the data
+# NB estimates θ from the data, so its value near one is expected rather than evidence
 dispersion <- function(fitted_model) {
   sum(residuals(fitted_model$fit, type = "pearson")^2) / df.residual(fitted_model$fit)
 }
@@ -88,6 +92,7 @@ dispersion <- function(fitted_model) {
 origins <- seq(a1_1_config$first_origin, a1_1_config$last_origin,
                by = a1_1_config$step_days)
 
+# Fit the baseline under each family on every training window, and calculate its dispersion
 window_dispersion <- lapply(origins, function(origin) {
   window_start <- origin - a1_1_config$window_weeks * 7 + 1
   window_fits <- lapply(c(poisson = "poisson", nb = "nb"), function(family_name) {
@@ -104,8 +109,7 @@ cat("Poisson dispersion across", nrow(window_dispersion), "windows:",
     "| negative binomial:", round(min(window_dispersion$nb), 2), "to",
     round(max(window_dispersion$nb), 2), "\n")
 
-# Log scale, as the Poisson values span two orders of magnitude and the negative binomial
-# values sit at one. The line at one is where the variance assumption would be correct
+# Plot on log scale given high difference in dispersion between families
 p_dispersion <- window_dispersion |>
   tidyr::pivot_longer(-origin, names_to = "family", values_to = "dispersion") |>
   mutate(family = factor(family, levels = c("poisson", "nb"),

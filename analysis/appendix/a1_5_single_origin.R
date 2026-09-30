@@ -1,9 +1,7 @@
-# Appendix A.1.5: model fit and forecast at a single origin, for all four models
-# Everything is in weekly totals, so the fit and the forecast share one axis and one unit,
-# and the fit is shown on the same quantity the CRPS scores
-# Forecast quantiles are read from data-processed/ch1_forecasts.csv, so the panel shows
-# the forecasts the chapter scores. Only the training-window fit is recomputed, which is
-# deterministic and is checked against ch1_window_coefficients.csv below
+# Appendix A.1.5: in-sample fit and forecast at two origins, for all four models
+# Weekly totals throughout, so fit and forecast share one axis and match what CRPS scores
+# Forecast quantiles are read from data-processed/ch1_forecasts.csv, as scored in Chapter 1
+# This script refits models over the training window only, as the Chapter 1 pipeline saves no fitted values
 
 source("analysis/ch1_gam.R")
 
@@ -29,14 +27,14 @@ a1_5_config <- list(
 
 dir.create(a1_5_config$output_dir, recursive = TRUE, showWarnings = FALSE)
 
+# Daily incidence and covariates, plus stored forecasts, scores and coefficients from the Chapter 1 pipeline
 dat       <- read_csv(ch1_gam_config$input_path, show_col_types = FALSE)
 forecasts <- read_csv(a1_5_config$forecast_path, show_col_types = FALSE)
 scores    <- read_csv(a1_5_config$scores_path, show_col_types = FALSE)
 stored_coefficients <- read_csv(a1_5_config$coef_path, show_col_types = FALSE)
 
 ## Choose the origins to show --------------------------------------------------
-# The chapter discusses where the models diverge, so origins are picked on the spread of
-# log-CRPS across the four models rather than by hand
+# Origins where models diverge most, by spread in log-CRPS across the four models
 
 origin_spread <- scores |>
   filter(scale == "log") |>
@@ -63,14 +61,13 @@ cat("\nShowing", format(chosen_origins[["headline"]]), "(largest spread) and",
     paste0(a1_5_config$alternative_period, ")\n"))
 
 ## Fitted values over the training window --------------------------------------
-# Refits the same no-smooth window the forecast came from, which is deterministic
 # Days are summed into 7-day blocks ending at the origin, so the training weeks fall on the
 # same grid as the forecast weeks and the two sit on one continuous axis
 
-window_fitted_weekly <- function(this_origin) {
+training_weekly_totals <- function(this_origin) {
   window_start <- this_origin - a1_5_config$window_weeks * 7 + 1
 
-  weekly <- lapply(names(ch1_models), function(model_name) {
+  weekly_totals <- lapply(names(ch1_models), function(model_name) {
     model_fit <- fit_renewal_gam(dat, ch1_models[[model_name]], use_smooth = FALSE,
                                  family = ch1_family(),
                                  fit_from = window_start, fit_to = this_origin)
@@ -78,13 +75,13 @@ window_fitted_weekly <- function(this_origin) {
     # The forecast freezes covariates at the last fitted row, which must be the origin
     stopifnot(max(model_fit$model_data$date) == this_origin)
 
-    # Refitting must reproduce ch1_rolling.R exactly, or the fit shown is not the fit scored
-    stored <- stored_coefficients |>
+    # Refit must match ch1_rolling.R, so the fit shown is the fit scored
+    stored_estimates <- stored_coefficients |>
       filter(origin == this_origin, model == model_name, !used_smooth) |>
       arrange(term)
-    refitted <- model_fit$coefficients |> arrange(term)
-    stopifnot(identical(stored$term, refitted$term),
-              max(abs(stored$estimate - refitted$estimate)) < 1e-6)
+    refitted_estimates <- model_fit$coefficients |> arrange(term)
+    stopifnot(identical(stored_estimates$term, refitted_estimates$term),
+              max(abs(stored_estimates$estimate - refitted_estimates$estimate)) < 1e-6)
 
     tibble(date     = model_fit$model_data$date,
            observed = model_fit$model_data$incidence,
@@ -99,14 +96,14 @@ window_fitted_weekly <- function(this_origin) {
       mutate(model = model_name)
   }) |> bind_rows()
 
-  # Partial weeks would put a short total next to full ones and read as a drop
-  stopifnot(all(weekly$n_days == 7))
+  # Partial weeks would show as a false drop
+  stopifnot(all(weekly_totals$n_days == 7))
 
-  weekly |> mutate(model = factor(model, levels = names(ch1_models)))
+  weekly_totals |> mutate(model = factor(model, levels = names(ch1_models)))
 }
 
 ## Forecast quantiles at one origin --------------------------------------------
-# Same route as ch1_forecast_plots.R, so the ribbons match the main-body figures
+# Same route as ch1_forecast_plots.R
 
 origin_quantiles <- function(this_origin) {
   forecasts |>
@@ -125,15 +122,15 @@ origin_quantiles <- function(this_origin) {
 
 build_panel <- function(this_origin) {
 
-  fitted_weekly <- window_fitted_weekly(this_origin)
-  fan           <- origin_quantiles(this_origin)
+  training_totals    <- training_weekly_totals(this_origin)
+  forecast_quantiles <- origin_quantiles(this_origin)
 
   period_label <- scores |> filter(origin == this_origin) |> slice(1) |> pull(period)
 
-  # Observed weekly totals either side of the origin, as one series
+  # Observed weekly totals either side of the origin
   observed_weekly <- bind_rows(
-    fitted_weekly |> distinct(week_end, observed) |> rename(date = week_end),
-    fan |> distinct(target_date, observed) |> rename(date = target_date)
+    training_totals |> distinct(week_end, observed) |> rename(date = week_end),
+    forecast_quantiles |> distinct(target_date, observed) |> rename(date = target_date)
   ) |> distinct(date, observed)
 
   # Mean over horizons 1-4, matching how this origin is scored elsewhere
@@ -148,12 +145,13 @@ build_panel <- function(this_origin) {
 
   ggplot(mapping = aes(x = date)) +
     geom_vline(xintercept = this_origin, linetype = "dashed", colour = "grey50") +
-    geom_ribbon(data = fan, aes(x = target_date, ymin = q0.05, ymax = q0.95, fill = model),
-                alpha = 0.25) +
-    geom_ribbon(data = fan, aes(x = target_date, ymin = q0.25, ymax = q0.75, fill = model),
-                alpha = 0.45) +
-    geom_line(data = fan, aes(x = target_date, y = q0.5, colour = model), linewidth = 0.7) +
-    geom_line(data = fitted_weekly, aes(x = week_end, y = fitted, colour = model),
+    geom_ribbon(data = forecast_quantiles,
+                aes(x = target_date, ymin = q0.05, ymax = q0.95, fill = model), alpha = 0.25) +
+    geom_ribbon(data = forecast_quantiles,
+                aes(x = target_date, ymin = q0.25, ymax = q0.75, fill = model), alpha = 0.45) +
+    geom_line(data = forecast_quantiles, aes(x = target_date, y = q0.5, colour = model),
+              linewidth = 0.7) +
+    geom_line(data = training_totals, aes(x = week_end, y = fitted, colour = model),
               linewidth = 0.7) +
     geom_point(data = observed_weekly, aes(y = observed), colour = "grey20", size = 1.1) +
     geom_text(data = origin_scores, inherit.aes = FALSE,
@@ -161,7 +159,6 @@ build_panel <- function(this_origin) {
               hjust = 0, vjust = 1.5, size = 3, colour = "grey20") +
     facet_wrap(~model, nrow = 1) +
     scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
-    # Suffixes chosen per value, as weekly totals differ by an order of magnitude across origins
     scale_y_continuous(labels = scales::label_number(scale = 1e-3, suffix = "k",
                                                      big.mark = ",")) +
     labs(title = sprintf("Model fit and forecast at %s (%s)",
@@ -173,10 +170,10 @@ build_panel <- function(this_origin) {
     theme(legend.position = "none")
 }
 
-for (which_origin in names(chosen_origins)) {
-  origin_date <- chosen_origins[[which_origin]]
+for (origin_role in names(chosen_origins)) {
+  origin_date <- chosen_origins[[origin_role]]
   ggsave(file.path(a1_5_config$output_dir,
-                   sprintf("fig_a1_5_%s_%s.png", which_origin, format(origin_date))),
+                   sprintf("fig_a1_5_%s_%s.png", origin_role, format(origin_date))),
          build_panel(origin_date), width = 12, height = 3.6, dpi = 300, bg = "white")
 }
 

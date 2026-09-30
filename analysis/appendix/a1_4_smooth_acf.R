@@ -1,5 +1,5 @@
-# Appendix A.1.4: what s(t) absorbs, and residual autocorrelation from the full-period fits
-# Deviance explained is in the main body, so no table is repeated here
+# Appendix A.1.4: in-sample fit with and without s(t), and residual autocorrelation from the full-period fits
+# This script refits models, as the Chapter 1 pipeline saves no fitted R(t) and ACF at three lags only
 
 source("analysis/ch1_gam.R")
 
@@ -15,10 +15,11 @@ a1_4_config <- list(
 
 dir.create(a1_4_config$output_dir, recursive = TRUE, showWarnings = FALSE)
 
+# Daily incidence and covariates from the Chapter 1 pipeline
 dat <- read_csv(ch1_gam_config$input_path, show_col_types = FALSE)
 
 ## Full-period combined fit, with and without s(t) -----------------------------
-# Same k as everywhere else outside the rolling windows, from ch1_gam_config
+# Use same k as the other full-period fits (20)
 
 combined_fits <- list(
   no_smooth = fit_renewal_gam(dat, ch1_models$combined, use_smooth = FALSE,
@@ -27,7 +28,7 @@ combined_fits <- list(
                               family = ch1_family())
 )
 
-# The two fits must cover the same days for the panel below to be a like-for-like comparison
+# Both fits must use the same days for comparability
 stopifnot(identical(combined_fits$no_smooth$model_data$date,
                     combined_fits$smooth$model_data$date))
 
@@ -35,11 +36,11 @@ cat("Combined model fitted on", combined_fits$no_smooth$n_obs, "days |",
     "deviance explained", round(100 * combined_fits$no_smooth$dev_expl, 1),
     "% without s(t),", round(100 * combined_fits$smooth$dev_expl, 1), "% with\n")
 
-# Rt is never observed, so incidence / Lambda_t is the reference: the renewal estimate taken
-# straight from the data with no model in between, which is what a fit has to reproduce
+# R(t) is never observed, so the naive renewal estimate (incidence / Λt) is the reference
 naive_rt <- combined_fits$no_smooth$model_data |>
   transmute(date, Rt = incidence / Lambda_t, series = "Renewal estimate")
 
+# Dataframe of naive and fitted R(t) by date, with and without s(t)
 fitted_rt_frame <- bind_rows(
   naive_rt,
   combined_fits$no_smooth$fitted_rt |> mutate(series = "Without s(t)"),
@@ -48,9 +49,7 @@ fitted_rt_frame <- bind_rows(
   mutate(series = factor(series, levels = c("Renewal estimate", "Without s(t)",
                                             "With s(t)")))
 
-# With s(t) the fit tracks the renewal estimate closely, leaving the covariates little to
-# explain; without it the fitted Rt is a function of the two covariates alone
-p_fit <- ggplot(fitted_rt_frame, aes(x = date, y = Rt, colour = series)) +
+p_fitted_rt <- ggplot(fitted_rt_frame, aes(x = date, y = Rt, colour = series)) +
   geom_hline(yintercept = 1, linetype = "dashed", colour = "grey50") +
   geom_line(linewidth = 0.5, na.rm = TRUE) +
   scale_colour_manual(values = c("Renewal estimate" = "grey60",
@@ -62,18 +61,18 @@ p_fit <- ggplot(fitted_rt_frame, aes(x = date, y = Rt, colour = series)) +
                           ch1_gam_config$smooth_k),
        x = NULL, y = "R(t)", colour = NULL) +
   theme_minimal() +
-  # Horizontal major lines only, so the grid does not read as a box behind the series
   theme(legend.position   = "bottom",
         panel.grid.minor  = element_blank(),
         panel.grid.major.x = element_blank())
 
 ggsave(file.path(a1_4_config$output_dir, "fig_a1_4a_smooth_absorption.png"),
-       p_fit, width = 10, height = 4.5, dpi = 300, bg = "white")
+       p_fitted_rt, width = 10, height = 4.5, dpi = 300, bg = "white")
 
 ## Residual autocorrelation ----------------------------------------------------
-# Full-period fits, matching the ACF computed in ch1_diagnostics.R, which also asserts
-# that each model frame is contiguous before reading anything into the lags
+# Full-period fits, matching the ACF computed in ch1_diagnostics.R
+# Assumes days are equally spaced, which is checked in analysis/ch1_diagnostics.R
 
+# Dataframe of residual autocorrelation by lag, for each model
 acf_frame <- lapply(names(ch1_models), function(model_name) {
   model_fit <- fit_renewal_gam(dat, ch1_models[[model_name]], family = ch1_family())
   acf_out   <- acf(residuals(model_fit$fit, type = "deviance"),
@@ -91,8 +90,7 @@ print(as.data.frame(acf_frame |>
         tidyr::pivot_wider(names_from = lag, values_from = acf, names_prefix = "lag_") |>
         mutate(across(where(is.double), \(x) round(x, 3)))), row.names = FALSE)
 
-# All four overlaid in one panel, as in ch1_diagnostics.R, so the models compare directly
-# Baseline drawn heavier as the reference, matching outputs/ch1/window_autocorrelation.png
+# All four models in one panel, baseline drawn heavier as the reference
 p_acf <- ggplot(acf_frame, aes(x = lag, y = acf, colour = model)) +
   geom_hline(yintercept = 0, colour = "grey50") +
   geom_line(aes(linewidth = model == "baseline")) +
