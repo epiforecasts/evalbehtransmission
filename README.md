@@ -8,6 +8,17 @@ Evaluation of nowcasting and forecasting using behavioural data including CoMix 
 - **inc2prev** (incidence, R(t) and modelled positivity for England, fitted to the ONS COVID-19 Infection Survey): https://github.com/epiforecasts/inc2prev
 - **OxCGRT** (policy stringency, used for period definitions only): https://github.com/OxCGRT/covid-policy-dataset
 
+## Repository state (September 2026)
+
+`main` holds the Chapter 1 pipeline. Work in progress sits on branches:
+
+| Branch | PR | What it holds |
+|---|---|---|
+| `51-inc2prev-generation-interval` | #56 (draft) | Switch between EpiEstim and inc2prev generation intervals. `gi_type` argument still to add (#57) |
+| `54-comix-population-weights` | #60 (draft) | CoMix mean contacts weighted to the ONS mid-2020 UK population. Review before rerunning the pipeline |
+| `appendix-scripts` | #59 (draft) | Scripts for the upgrading report's Appendix A.1 figures |
+| `55-synthetic-outbreak` | — | Synthetic outbreak plan (`synthetic/ch1_synthetic_experiment.qmd`, #55) |
+
 ## Chapter 1
 
 Fits a renewal-equation GAM to England infection incidence and tests whether CoMix contacts or Google Mobility improve 1-4 week forecasts. Four models are compared: baseline, contacts, mobility, combined. Negative binomial used with April 2020 to January 2021 study window (pre-mass-vaccination).
