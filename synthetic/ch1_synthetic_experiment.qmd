@@ -225,3 +225,11 @@ Compare $\hat{\theta}$ and coverage with and without NegBin noise.
 - **Wide intervals.** A wide interval around $\hat{\beta}_1$ does not necessarily imply concurvity, as the covariate may barely move in that window.
 - **Extrapolating $s(t)$.** A smooth fitted over the training window shouldn't be extrapolated to $s(t_{\max} + h)$. Because of how basis functions behave past the data, this can give extreme (even negative) $s(t)$ values, and hence extreme $R(t)$, which propagate through the renewal forecast. Instead, sample from the posterior of $s(t)$ at $t_{\max}$ and carry it forward, the $\log R(t)$ analogue of Mellor et al.'s constant growth rate.
 - **Smoothed incidence.** inc2prev incidence, and so its $R(t)$, is smoothed, so a smooth $s(t)$ may capture $R(t)$ very well by design. If noisy mobility or contact data could explain rapid changes in $R(t)$, that smoothing limits how far we can see the effect of noisy behaviour. In simulation, a noisy $X_t$ gives a noisy $R(t)$, where the smooth-only model should struggle without overfitting while the $X_t$ model captures it, since we know how $R(t)$ relates to behaviour. In chapter 1, behaviour can be noisy but $R(t)$ and incidence are smoothed, so this may need the inc2prev posterior uncertainty rather than individual noisy trajectories.
+
+---
+
+### Notes from 30th September 2026
+
+- Focus on one covariate series and generate one time series of infections. Condition on these two things, and vary the rest.
+- What behaviour adds? If you knew exactly what the relationship between contacts and transmission was, you could then explore scenario projections. Perhaps a good outcome from this synthetic experiment would be how reliable or robust those coefficient estimates are. Similar to Ruarai adding school closures and weekends into projections.
+- Consider alternatives for extrapolating forwards e.g. random walk which gives variation within trajectories, rather than just between them (currently sample from posterior)
